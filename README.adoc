@@ -5,9 +5,11 @@ v0.1.0-alpha, 2025-03-03
 
 == Overview
 
-**KGValidatePy** is a Python library for validating knowledge graphs in DataOps and ModelOps workflows.
+**KGValidatePy** is a Python library for validating knowledge graphs on top of pySHACL.
 
-KGValidatePy extends the capabilities of link:https://github.com/RDFLib/pySHACL[pySHACL] and integrates tightly with **KGraphPy**, providing structured validation pipelines for standards-based knowledge graph data, including CIM / CGMES–style datasets.
+It provides DataOps-oriented approched that can support both ModelOps and SchemaOps workflows.
+
+KGValidatePy extends the capabilities of link:https://github.com/RDFLib/pySHACL[pySHACL] and integrates tightly with **KGraphPy**, providing structured validation pipelines for standards-based knowledge graph data, including Common Information Model (CIM) / Common Grid Model Exchange Standard (CGMES) confomred datasets.
 
 The library is designed to support:
 
@@ -17,7 +19,7 @@ The library is designed to support:
 - Structured validation reporting
 - Integration with editing and verification workflows
 
-KGValidatePy builds on top of RDFLib-based graph handling while remaining implementation-neutral at the interface level.
+KGValidatePy builds on top of KGraphPy-based (RDFLib) and pySHACL graph handling while remaining implementation-neutral at the interface level.
 
 == Scope and Focus
 
@@ -65,7 +67,7 @@ KGValidatePy is intentionally composable:
 - **KGVerifyPy** may use validation results as part of executable verification workflows
 - **KGEditPy** may present validation findings for human correction
 
-KGValidatePy does not reimplement SHACL validation logic; it orchestrates and extends it for DataOps and ModelOps use cases.
+KGValidatePy does not reimplement SHACL validation logic; it orchestrates and extends it for DataOps (including SchemaOps and ModelOps) use cases.
 
 == Licensing
 
@@ -81,4 +83,4 @@ KGValidatePy builds upon the excellent work of the **pySHACL** project and its c
 
 We explicitly acknowledge the RDFLib and pySHACL communities for providing the foundational SHACL validation capabilities that make this library possible.
 
-KGValidatePy extends these capabilities for standards-based DataOps and ModelOps workflows but remains an independent open-source project.
+KGValidatePy extends these capabilities for standards-based DataOps workflows but remains an independent open-source project.
