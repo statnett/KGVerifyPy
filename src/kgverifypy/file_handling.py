@@ -20,9 +20,9 @@ def make_data_graph_from_cimxml(files: Sequence[str|Path]) -> Graph:
 
     return data
 
-def make_shacl_graph(file: str|Path) -> Graph:
+def make_shacl_graph(file: str|Path, format: str = "ttl") -> Graph:
     g = Graph()
-    g.parse(file, format="ttl")
+    g.parse(file, format=format)
     return g
 
 if __name__ == "__main__":

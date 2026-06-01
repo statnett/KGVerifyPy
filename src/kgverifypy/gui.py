@@ -14,8 +14,10 @@ class CIMShaclGUI:
 		self.data_files: list[str] = []
 		self.rdfs_files: list[str] = []
 		self.shacl_file: str = ""
+		self.shacl_format = tk.StringVar(value="ttl")
 		self.rdfs_graph: Graph | None = None
 		self.data_graph: Graph | None = None
+		self.shacl_graph: Graph | None = None
 		self._build_ui()
 		self.root.mainloop()
 
@@ -40,13 +42,21 @@ class CIMShaclGUI:
 		ttk.Button(frame, text="Browse", command=self.select_rdfs_files).grid(row=3, column=1, sticky="ew")
 
 		ttk.Label(frame, text="shacl files:").grid(row=4, column=0, sticky="w", pady=(10, 6))
+		
+		# Format selection radio buttons
+		format_frame = ttk.Frame(frame)
+		format_frame.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(0, 6))
+		
+		ttk.Radiobutton(format_frame, text="TTL", variable=self.shacl_format, value="ttl").pack(side="left", padx=(0, 12))
+		ttk.Radiobutton(format_frame, text="RDF", variable=self.shacl_format, value="xml").pack(side="left")
+		
 		self.shacl_var = tk.StringVar(value="No files selected")
 		self.shacl_entry = ttk.Entry(frame, textvariable=self.shacl_var, state="readonly")
-		self.shacl_entry.grid(row=5, column=0, sticky="ew", padx=(0, 8))
-		ttk.Button(frame, text="Browse", command=self.select_shacl_file).grid(row=5, column=1, sticky="ew")
+		self.shacl_entry.grid(row=6, column=0, sticky="ew", padx=(0, 8))
+		ttk.Button(frame, text="Browse", command=self.select_shacl_file).grid(row=6, column=1, sticky="ew")
 
 		run_btn = ttk.Button(frame, text="Run", command=self.run)
-		run_btn.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+		run_btn.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(14, 0))
 
 	def _select_files(self, title: str) -> list[str]:
 		files = filedialog.askopenfilenames(title=title)
@@ -70,7 +80,7 @@ class CIMShaclGUI:
 		file = filedialog.askopenfilename(title="Select shacl file")
 		if file:
 			self.shacl_file = file
-			self.shacl_graph = make_shacl_graph(self.shacl_file)
+			self.shacl_graph = make_shacl_graph(self.shacl_file, format=self.shacl_format.get())
 			self.shacl_var.set("1 file selected")
 
 	def run(self) -> None:
