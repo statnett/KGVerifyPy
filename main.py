@@ -7,8 +7,7 @@ from kgraphpy.processor import CIMProcessor
 from rdflib import Graph, URIRef, RDF, Literal
 from rdflib.namespace import XSD, SH
 from pyshacl import validate
-from src.KGVerifyPy.shacl_shape_validation import find_broken_shapes
-from src.KGVerifyPy.shacl_shape_repair import RepairManager
+from kgverifypy.file_handling import make_ontology_graph
 from owlrl import DeductiveClosure, RDFS_Semantics
 from typing import Optional, Sequence
 
@@ -91,12 +90,6 @@ def shacl_validation_with_file_output(output_name: str|Path, data: Graph, shacl_
         f.write(results_text)
 
 
-def make_ontology_graph(files: list[str|Path]) -> Graph:
-    g = Graph()
-    for file in files:
-        g.parse(file, format="xml")
-    return g
-
 def main():
     ontology_path = "../application-profiles-library/CGMES/CurrentRelease/RDFS"
     ontology_file1 = Path(ontology_path) / "61970-600-2_DiagramLayout-AP-Voc-RDFS2020.rdf"
@@ -173,4 +166,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    print("running nothing")
