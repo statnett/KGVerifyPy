@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 from rdflib import Graph
 from kgverifypy.file_handling import make_ontology_graph, make_data_graph_from_cimxml, make_shacl_graph
+from kgverifypy.shacl_validation import find_focus_nodes
 
 class CIMShaclGUI:
 	"""GUI for selecting multiple files and displaying a run summary."""
@@ -11,6 +12,15 @@ class CIMShaclGUI:
 	def __init__(self) -> None:
 		self.root = tk.Tk()
 		self.root.title("CIM pySHACL GUI")
+		self.root.geometry("760x420")
+		self.root.minsize(680, 380)
+
+		# Increase default text size for the whole GUI.
+		self.style = ttk.Style(self.root)
+		self.style.configure("TLabel", font=("TkDefaultFont", 12))
+		self.style.configure("TButton", font=("TkDefaultFont", 12))
+		self.style.configure("TRadiobutton", font=("TkDefaultFont", 12))
+		self.style.configure("TEntry", font=("TkDefaultFont", 12))
 		self.data_files: list[str] = []
 		self.rdfs_files: list[str] = []
 		self.shacl_file: str = ""
@@ -90,7 +100,8 @@ class CIMShaclGUI:
 
 		top = tk.Toplevel(self.root)
 		top.title("Run output")
-		top.geometry("360x160")
+		top.geometry("560x280")
+		top.minsize(480, 240)
 
 		message = (
 			f"Data Graph length: {data_count}\n"
@@ -98,8 +109,20 @@ class CIMShaclGUI:
 			f"SHACL Graph length: {shacl_count}\n\n"
 			f"Run: {data_count + rdfs_count} triples with {shacl_count} shapes"
 		)
-		ttk.Label(top, text=message, padding=12).pack(fill="both", expand=True)
+		ttk.Label(top, text=message, padding=16, font=("TkDefaultFont", 13)).pack(fill="both", expand=True)
+		self.report_focus_nodes(top)
 
+	def report_focus_nodes(self, top: tk.Toplevel) -> None:
+		if self.data_graph and self.shacl_graph:
+			shape_info = find_focus_nodes(self.data_graph, self.shacl_graph)
+			total_shapes = len(shape_info)
+			shapes_with_focus_nodes = sum(1 for _, focus_nodes in shape_info if len(focus_nodes) > 0)
+			focus_message = (
+				f"Total number of shapes: {total_shapes}\n"
+				f"Shapes with focus nodes in graph: {shapes_with_focus_nodes}\n"
+			)
+			
+			ttk.Label(top, text=focus_message, padding=16, font=("TkDefaultFont", 13)).pack(fill="both", expand=True)
 
 def main() -> None:
 	CIMShaclGUI()

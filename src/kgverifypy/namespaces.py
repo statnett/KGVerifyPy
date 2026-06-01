@@ -1,4 +1,4 @@
-from cim_plugin.namespaces import CGMES_CIM, CIM, EU, CGMES_EU
+from kgraphpy.namespaces import CGMES_CIM, CIM, EU, CGMES_EU
 from rdflib import Graph
 
 

@@ -8,6 +8,7 @@ from rdflib import Graph, URIRef, RDF, Literal
 from rdflib.namespace import XSD, SH
 from pyshacl import validate
 from kgverifypy.file_handling import make_ontology_graph
+from kgverifypy.shacl_validation import find_focus_nodes
 from owlrl import DeductiveClosure, RDFS_Semantics
 from typing import Optional, Sequence
 
@@ -17,39 +18,6 @@ def add_datatypes_from_default_context(g: Graph) -> None:
     context_data["@context"]["eu"] = "http://iec.ch/TC57/CIM100-European#"
     datatype_map = extract_datatype_map(context_data)
     enrich_graph_datatypes(g, datatype_map)
-
-
-def find_focus_nodes(data_graph, shapes_graph):
-    shapes = list(shapes_graph.subjects(RDF.type, SH.NodeShape)) + \
-             list(shapes_graph.subjects(RDF.type, SH.PropertyShape))
-
-    results = []
-
-    for shape in shapes:
-        focus_nodes = set()
-
-        # sh:targetClass
-        for cls in shapes_graph.objects(shape, SH.targetClass):
-            for node in data_graph.subjects(RDF.type, cls):
-                focus_nodes.add(node)
-
-        # sh:targetNode
-        for node in shapes_graph.objects(shape, SH.targetNode):
-            focus_nodes.add(node)
-
-        # sh:targetSubjectsOf
-        for prop in shapes_graph.objects(shape, SH.targetSubjectsOf):
-            for subj in data_graph.subjects(prop, None):
-                focus_nodes.add(subj)
-
-        # sh:targetObjectsOf
-        for prop in shapes_graph.objects(shape, SH.targetObjectsOf):
-            for obj in data_graph.objects(None, prop):
-                focus_nodes.add(obj)
-
-        results.append((shape, focus_nodes))
-
-    return results
 
 
 def prepare_data_for_validation(files: Sequence[str|Path], ontology: Optional[Graph] = None) -> Graph:
