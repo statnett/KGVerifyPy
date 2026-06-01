@@ -7,7 +7,7 @@ from kgraphpy.processor import CIMProcessor
 from rdflib import Graph, URIRef, RDF, Literal
 from rdflib.namespace import XSD, SH
 from pyshacl import validate
-from kgverifypy.file_handling import make_ontology_graph
+from kgverifypy.file_handling import make_graph_from
 from kgverifypy.shacl_validation import find_focus_nodes
 from owlrl import DeductiveClosure, RDFS_Semantics
 from typing import Optional, Sequence
@@ -67,7 +67,7 @@ def main():
     ontology_file5 = Path(ontology_path) / "61970-600-2_StateVariables-AP-Voc-RDFS2020.rdf"
     ontology_file6 = Path(ontology_path) / "61970-600-2_SteadyStateHypothesis-AP-Voc-RDFS2020.rdf"
     ontology_file7 = Path(ontology_path) / "61970-600-2_Topology-AP-Voc-RDFS2020.rdf"
-    # ontology_graph = make_ontology_graph([
+    # ontology_graph = make_graph_from([
     #     ontology_file1,
     #     ontology_file2,
     #     ontology_file3,
