@@ -1,10 +1,19 @@
-from rdflib import Graph
+from rdflib import Graph, Dataset
 from pathlib import Path
 from kgraphpy.graph import CIMGraph
 from kgraphpy.utilities import load_graphs_from_cimxml
 from typing import Sequence, Union
 
-def make_graph_from(files: Union[str, Path, Sequence[Union[str, Path]]], format: str = "xml") -> Graph:
+def make_graphs_from(files: Union[str, Path, Sequence[Union[str, Path]]], format: str = "xml") -> Graph:
+    """Create a Graph from one or more files.
+    
+    Parameters:
+        files (str|Path|Sequence[str|Path]): One or more file paths to load into the graph.
+        format (str): The format to use when parsing the files. Default is "xml".
+
+    Returns:
+        Graph: A Graph containing the data from the provided files.
+    """
     if isinstance(files, (str, Path)):
         files = [files]
 
@@ -14,6 +23,30 @@ def make_graph_from(files: Union[str, Path, Sequence[Union[str, Path]]], format:
     
     return g
 
+
+def merge_trig_graphs(files: Union[str, Path, Sequence[Union[str, Path]]]) -> Graph:
+    """Merge multiple TriG files into a single Graph.
+    
+    Parameters:
+        files (str|Path|Sequence[str|Path]): One or more file paths to load into the graph.
+
+    Returns:
+        Graph: A Graph containing the merged data from the provided TriG files.
+    """
+    if isinstance(files, (str, Path)):
+        files = [files]
+
+    ds = Dataset()
+    for file in files:
+        ds.parse(file, format="trig")
+    
+    g = Graph()
+    for prefix, namespace in ds.namespace_manager.store.namespaces():
+        g.bind(prefix, namespace)
+    for s, p, o, _ in ds.quads((None, None, None, None)):
+        g.add((s, p, o))
+
+    return g
 
 # Not used, but may be needed in the future if we want to do things that are done via a CIMProcessor.
 # def make_data_graph_from_cimxml_old(files: Union[str, Path, Sequence[Union[str, Path]]]) -> Graph:

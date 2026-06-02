@@ -90,8 +90,8 @@ if __name__ == "__main__":
 
     # print(f"Number of CurrentLimit subjects missing OperationalLimitType: {len(missing_limittype)}")
     """
-    outpath = Path.cwd().parent / "instance"
-    valresult_file = outpath / "Instance_simple_EQ_noinference_nodebug.json"
+    outpath = Path.cwd().parent
+    valresult_file = outpath / "validation_results.json"
     # valresult_path = Path.cwd().parent / "shacl_validation_result"
     # valresult_file = valresult_path / "N44_grid_allprofiles_TP_complex_inference.json"
     exploring_validation_results(valresult_file)

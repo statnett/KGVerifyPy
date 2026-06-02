@@ -6,6 +6,7 @@ from rdflib import Graph
 from pyshacl import validate
 from owlrl import DeductiveClosure, RDFS_Semantics
 from kgverifypy.shacl_validation import find_focus_nodes
+from kgverifypy.datatype_enrichment import add_datatypes_from_context
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,19 @@ class ShaclValidationResult:
 class ShaclValidationService:
 	"""Pure SHACL validation and reporting operations."""
 
+	def prepare_data_for_validation(self, data_graph: Graph, rdfs_graph: Graph | None, add_datatypes: bool = False, context_url: str | None = None) -> None:
+		if rdfs_graph is not None:
+			self._expand_with_rdfs(data_graph, rdfs_graph)
+
+		if add_datatypes:
+			print("Adding datatypes from context:", context_url)
+			add_datatypes_from_context(data_graph, context_url)
+
+		
+	def _expand_with_rdfs(self, data_graph: Graph, rdfs_graph: Graph) -> None:
+		data_graph += rdfs_graph
+		DeductiveClosure(RDFS_Semantics).expand(data_graph)
+
 	def summarize_focus_nodes(
 		self,
 		data_graph: Graph | None,
@@ -47,12 +61,7 @@ class ShaclValidationService:
 		if data_graph is None or shacl_graph is None:
 			return None
 		
-		if rdfs_graph is not None:
-			inference = "rdfs"
-			data_graph += rdfs_graph
-			DeductiveClosure(RDFS_Semantics).expand(data_graph)
-		else:
-			inference = "none"
+		inference = "rdfs" if rdfs_graph is not None else "none"
 			
 		conforms, results_graph, _ = validate(
 			data_graph,
