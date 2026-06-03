@@ -1,13 +1,14 @@
 """Validation-focused service layer for SHACL operations."""
 
 from dataclasses import dataclass
-
 from rdflib import Graph
 from pyshacl import validate
 from owlrl import DeductiveClosure, RDFS_Semantics
 from kgverifypy.shacl_validation import find_focus_nodes
 from kgverifypy.datatype_enrichment import add_datatypes_from_context
+import logging
 
+logger = logging.getLogger("primary")
 
 @dataclass(frozen=True)
 class FocusNodeSummary:
@@ -29,23 +30,43 @@ class ShaclValidationService:
 	"""Pure SHACL validation and reporting operations."""
 
 	def prepare_data_for_validation(self, data_graph: Graph, rdfs_graph: Graph | None, add_datatypes: bool = False, context_url: str | None = None) -> None:
+		"""Prepare the data graph for SHACL validation by optionally expanding with RDFS semantics and adding datatypes from a context.
+		
+		Parameters:
+			data_graph (Graph): The RDF graph containing the data to be validated.
+			rdfs_graph (Graph | None): An optional RDF graph containing RDFS semantics to expand the data graph.
+			add_datatypes (bool): Whether to add datatypes from a context.
+			context_url (str | None): The URL of the context to use for adding datatypes. If None a default context is applied.
+		"""
+		if data_graph is None:
+			return
+		
 		if rdfs_graph is not None:
+			logger.info("Expanding data graph with RDFS semantics from provided ontology.")
 			self._expand_with_rdfs(data_graph, rdfs_graph)
 
 		if add_datatypes:
-			print("Adding datatypes from context:", context_url)
+			logger.info(f"Adding datatypes from context: {context_url if context_url else 'default context'}")
 			add_datatypes_from_context(data_graph, context_url)
 
-		
+	
 	def _expand_with_rdfs(self, data_graph: Graph, rdfs_graph: Graph) -> None:
+		"""Expand the data graph with RDFS semantics from the provided RDFS graph.
+
+		Parameters:
+			data_graph (Graph): The RDF graph containing the data to be expanded.
+			rdfs_graph (Graph): The RDF graph containing RDFS semantics to expand the data graph with.
+		"""
+		if data_graph is None or rdfs_graph is None:
+			return
+		
+		for prefix, namespace in rdfs_graph.namespace_manager.store.namespaces():
+			data_graph.namespace_manager.bind(prefix, namespace, override=False)
 		data_graph += rdfs_graph
+
 		DeductiveClosure(RDFS_Semantics).expand(data_graph)
 
-	def summarize_focus_nodes(
-		self,
-		data_graph: Graph | None,
-		shacl_graph: Graph | None,
-	) -> FocusNodeSummary | None:
+	def summarize_focus_nodes(self, data_graph: Graph | None, shacl_graph: Graph | None) -> FocusNodeSummary | None:
 		if data_graph is None or shacl_graph is None:
 			return None
 
@@ -80,3 +101,7 @@ class ShaclValidationService:
 			return False
 		results_graph.serialize(destination=output_path, format=output_format)
 		return True
+
+
+if __name__ == "__main__":
+	print("Classes for handling pyshacl validation logic.")

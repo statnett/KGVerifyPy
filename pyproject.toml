@@ -14,3 +14,6 @@ kgraphpy = { git = "ssh://git@github.com/statnett/KGraphPy.git", rev = "main" }
 
 [tool.setuptools]
 packages = ["src/kgverifypy"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

@@ -207,10 +207,13 @@ class CIMShaclGUI:
 			f"SHACL Graph length: {shacl_count}\n\n"
 			# f"Run: {data_count + rdfs_count} triples with {shacl_count} shapes"
 		)
-		self._prepare_data_graph()
-		self._show_output_message(top, message)
-		self._report_focus_nodes(top)
-		self._run_shacl_validation(top)
+		try:
+			self._prepare_data_graph()
+			self._show_output_message(top, message)
+			self._report_focus_nodes(top)
+			self._run_shacl_validation(top)
+		except Exception as e:
+			self._show_output_message(top, f"An error occurred:\n {str(e)}")
 
 	def _show_output_message(self, top: tk.Toplevel, message: str) -> None:
 		ttk.Label(top, text=message, padding=2, font=OUTPUT_FONT).pack(fill="both", expand=True)
