@@ -87,6 +87,7 @@ class CIMShaclGUI:
 		data_format_frame = ttk.Frame(frame)
 		data_format_frame.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(0, 6))
 		ttk.Radiobutton(data_format_frame, text="CIMXML", variable=self.data_format, value="cimxml").pack(side="left", padx=(0, 12))
+		ttk.Radiobutton(data_format_frame, text="RDF/XML", variable=self.data_format, value="xml").pack(side="left", padx=(0, 12))
 		ttk.Radiobutton(data_format_frame, text="JSON-LD", variable=self.data_format, value="json-ld").pack(side="left", padx=(0, 12))
 		ttk.Radiobutton(data_format_frame, text="TRIG", variable=self.data_format, value="trig").pack(side="left")
 		row += 1

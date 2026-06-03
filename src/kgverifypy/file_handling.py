@@ -26,6 +26,9 @@ def make_graphs_from(files: Union[str, Path, Sequence[Union[str, Path]]], format
 
 def merge_trig_graphs(files: Union[str, Path, Sequence[Union[str, Path]]]) -> Graph:
     """Merge multiple TriG files into a single Graph.
+
+    If any of the files contain more than one graph, the resulting graph will contain 
+    all of the triples from all of the graphs in all of the files.
     
     Parameters:
         files (str|Path|Sequence[str|Path]): One or more file paths to load into the graph.
@@ -43,8 +46,8 @@ def merge_trig_graphs(files: Union[str, Path, Sequence[Union[str, Path]]]) -> Gr
     g = Graph()
     for prefix, namespace in ds.namespace_manager.store.namespaces():
         g.bind(prefix, namespace)
-    for s, p, o, _ in ds.quads((None, None, None, None)):
-        g.add((s, p, o))
+    for graph in ds.graphs():
+        g += graph
 
     return g
 

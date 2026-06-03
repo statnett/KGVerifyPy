@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock, call
 from rdflib import Graph, Literal, URIRef
+from rdflib.plugin import PluginException
 from pathlib import Path
 from src.kgverifypy.file_handling import make_graphs_from, merge_trig_graphs
 
@@ -10,10 +11,11 @@ from src.kgverifypy.file_handling import make_graphs_from, merge_trig_graphs
     [
         pytest.param(["file1.owl", "file2.owl"], "xml", id="Multiple files with default format"),
         pytest.param("file1.ttl", "ttl", id="Single file with specified format"),
+        pytest.param([], "xml", id="Empty file list")
     ]
 )
 @patch.object(Graph, "parse")
-def test_make_graph_from(mock_parse: MagicMock, files, format) -> None:
+def test_make_graph_from(mock_parse: MagicMock, files: list|str, format: str) -> None:
     g = make_graphs_from(files, format=format)
 
     assert isinstance(g, Graph)
@@ -27,15 +29,25 @@ def test_make_graph_from(mock_parse: MagicMock, files, format) -> None:
     mock_parse.assert_has_calls(calls, any_order=True)
 
 
-@patch.object(Graph, "parse")
-def test_make_graph_from_error(mock_parse: MagicMock) -> None:
-    mock_parse.side_effect = [Graph(), Exception("File not found")]
+def test_make_graph_from_parsingerror() -> None:
     files = ["file1.owl", "file2.owl"]
-    with pytest.raises(Exception, match="File not found"):
+    with pytest.raises(FileNotFoundError) as exc_info:
         g = make_graphs_from(files)
         assert isinstance(g, Graph)
+    assert 'No such file or directory' in str(exc_info.value)
 
-    assert mock_parse.call_count == len(files)
+
+def test_make_graph_from_formaterror(tmp_path: Path) -> None:
+    file = tmp_path / "file1.owl"
+    file.write_text(f"""
+        @prefix ex: <http://example.org/ns1#> .
+        ex:s1 ex:p1 "o1" .
+    """)
+    with pytest.raises(PluginException) as exc_info:
+        g = make_graphs_from([file], format="invalidformat")
+        assert isinstance(g, Graph)
+    assert "No plugin registered for (invalidformat, <class 'rdflib.parser.Parser'>)" in str(exc_info.value)
+
 
 @pytest.mark.parametrize(
         "namespace1, namespace2",
@@ -69,6 +81,16 @@ def test_make_graph_from_graphcontent(tmp_path: Path, namespace1: str, namespace
 
 
 # Unit tests merge_trig_graphs
+# The deprecation warnings are due to rdflib's internal use of deprecated features, and are therefore silenced for the tests for this function.
+@pytest.mark.filterwarnings("ignore:.*default_context.*:DeprecationWarning")
+@pytest.mark.filterwarnings("ignore:.*ConjunctiveGraph.*:DeprecationWarning")
+def test_merge_trig_graphs_emptylist() -> None:
+    g = merge_trig_graphs([])
+    assert isinstance(g, Graph)
+    assert len(g) == 0
+
+@pytest.mark.filterwarnings("ignore:.*default_context.*:DeprecationWarning")
+@pytest.mark.filterwarnings("ignore:.*ConjunctiveGraph.*:DeprecationWarning")
 def test_merge_trig_graphs_singlefile(tmp_path: Path) -> None:
     file = tmp_path / "data.trig"
     file.write_text("""
@@ -88,6 +110,15 @@ def test_merge_trig_graphs_singlefile(tmp_path: Path) -> None:
     assert (ex + "s2", ex + "p2", Literal("o2")) in g
     assert g.namespace_manager.store.namespace("ex") == ex
 
+@pytest.mark.filterwarnings("ignore:.*default_context.*:DeprecationWarning")
+@pytest.mark.filterwarnings("ignore:.*ConjunctiveGraph.*:DeprecationWarning")
+def test_merge_trig_graphs_parsingerror() -> None:
+    files = ["file1.trig", "file2.trig"]
+    with pytest.raises(FileNotFoundError) as exc_info:
+        g = merge_trig_graphs(files)
+        assert isinstance(g, Graph)
+    assert 'No such file or directory' in str(exc_info.value)
+
 @pytest.mark.parametrize(
         "namespace1, namespace2",
         [
@@ -95,6 +126,8 @@ def test_merge_trig_graphs_singlefile(tmp_path: Path) -> None:
             pytest.param("http://example.org/ns1#", "http://example.com/ns2#", id="Different namespaces"),
         ]
 )
+@pytest.mark.filterwarnings("ignore:.*default_context.*:DeprecationWarning")
+@pytest.mark.filterwarnings("ignore:.*ConjunctiveGraph.*:DeprecationWarning")
 def test_merge_trig_graphs_multiplefiles(tmp_path: Path, namespace1: str, namespace2: str) -> None:
     file1 = tmp_path / "data1.trig"
     file1.write_text(f"""
@@ -121,6 +154,33 @@ def test_merge_trig_graphs_multiplefiles(tmp_path: Path, namespace1: str, namesp
     assert g.namespace_manager.store.namespace("ex") == ex
     if namespace1 != namespace2:    # When namespaces are different, the second file's namespace is automatically given a new prefix
         assert g.namespace_manager.store.namespace("ex1") == ex1
+
+@pytest.mark.filterwarnings("ignore:.*default_context.*:DeprecationWarning")
+@pytest.mark.filterwarnings("ignore:.*ConjunctiveGraph.*:DeprecationWarning")
+def test_merge_trig_graphs_multipleprefixes(tmp_path: Path) -> None:
+    file1 = tmp_path / "data1.trig"
+    file1.write_text(f"""
+        @prefix ex: <http://www.bar.com/> .
+        ex:g {{
+            ex:s1 ex:p1 "o1" .
+        }}
+    """)
+    file2 = tmp_path / "data2.trig"
+    file2.write_text(f"""
+        @prefix foo: <http://www.bar.com/> .
+        foo:g {{
+            foo:s2 foo:p2 "o2" .
+        }}
+    """)
+
+    g = merge_trig_graphs([file1, file2])
+    print(list(g))
+
+    ex = URIRef("http://www.bar.com/")
+    print(list(g))
+    assert (ex + "s1", ex + "p1", Literal("o1")) in g
+    assert (ex + "s2", ex + "p2", Literal("o2")) in g
+    assert g.namespace_manager.store.namespace("foo") == ex # Last prefix wins when multiple prefixes point to the same namespace
 
 if __name__ == "__main__":
     pytest.main()
