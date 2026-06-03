@@ -2,7 +2,7 @@ from kgraphpy.namespaces import CGMES_CIM, CIM, EU, CGMES_EU
 from rdflib import Graph, URIRef
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("primary")
 
 
 def align_cgmes_namespaces(graph: Graph, context: dict) -> None:
