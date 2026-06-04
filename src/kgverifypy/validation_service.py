@@ -2,9 +2,9 @@
 
 from dataclasses import dataclass
 from rdflib import Graph
+from rdflib.namespace import RDF, SH
 from pyshacl import validate
 from owlrl import DeductiveClosure, RDFS_Semantics
-from kgverifypy.shacl_validation import find_focus_nodes
 from kgverifypy.datatype_enrichment import add_datatypes_from_context
 import logging
 
@@ -67,6 +67,15 @@ class ShaclValidationService:
 		DeductiveClosure(RDFS_Semantics).expand(data_graph)
 
 	def summarize_focus_nodes(self, data_graph: Graph | None, shacl_graph: Graph | None) -> FocusNodeSummary | None:
+		"""Summarize the number of shapes in the SHACL graph and how many have explicit focus nodes in the data graph.
+		
+		Parameters:
+			data_graph (Graph | None): The RDF graph containing the data to be validated.
+			shacl_graph (Graph | None): The RDF graph containing the SHACL shapes.
+		
+		Returns:
+			FocusNodeSummary | None: A summary of total shapes and how many have explicit focus nodes, or None if either graph is not provided.
+		"""
 		if data_graph is None or shacl_graph is None:
 			return None
 
@@ -101,6 +110,53 @@ class ShaclValidationService:
 			return False
 		results_graph.serialize(destination=output_path, format=output_format)
 		return True
+
+
+def find_focus_nodes(data_graph: Graph, shapes_graph: Graph) -> list[tuple[str, set[str]]]:
+	"""Find explicit focus nodes for each shape in the SHACL shapes graph based on the data graph.
+	
+	Implicit focus nodes that are generated dynamically during validation are not captured by this function. 
+
+	Parameters:
+		data_graph (Graph): The RDF graph containing the data to be validated.
+		shapes_graph (Graph): The RDF graph containing the SHACL shapes.
+
+	Returns:
+		list[tuple[str, set[str]]]: List of shape identifiers with focus nodes associated with each shape.
+	"""
+	if data_graph is None or shapes_graph is None:
+		return []
+	
+	shapes = list(shapes_graph.subjects(RDF.type, SH.NodeShape)) + \
+				list(shapes_graph.subjects(RDF.type, SH.PropertyShape))
+
+	results = []
+
+	for shape in shapes:
+		focus_nodes = set()
+
+		# sh:targetClass
+		for cls in shapes_graph.objects(shape, SH.targetClass):
+			for node in data_graph.subjects(RDF.type, cls):
+				focus_nodes.add(node)
+
+		# sh:targetNode
+		for node in shapes_graph.objects(shape, SH.targetNode):
+			focus_nodes.add(node)
+
+		# sh:targetSubjectsOf
+		for prop in shapes_graph.objects(shape, SH.targetSubjectsOf):
+			for subj in data_graph.subjects(prop, None):
+				focus_nodes.add(subj)
+
+		# sh:targetObjectsOf
+		for prop in shapes_graph.objects(shape, SH.targetObjectsOf):
+			for obj in data_graph.objects(None, prop):
+				focus_nodes.add(obj)
+
+		results.append((shape, focus_nodes))
+
+	return results
 
 
 if __name__ == "__main__":

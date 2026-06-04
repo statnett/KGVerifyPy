@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import Mock, MagicMock, patch
-from rdflib import Graph, URIRef
-from rdflib.namespace import RDFS, RDF, Namespace
-from src.kgverifypy.validation_service import ShaclValidationService
+from rdflib import Graph, URIRef, BNode
+from rdflib.namespace import RDFS, RDF, Namespace, SH
+from src.kgverifypy.validation_service import FocusNodeSummary, ShaclValidationService, find_focus_nodes
 
 
 PATCH_LOCATION = "src.kgverifypy.validation_service"
@@ -108,7 +108,7 @@ EX2 = URIRef("http://other.example.org/")
         ),
     ],
 )
-def test_expand_with_rdfs_namespaceconflicts(initial_binding, rdfs_binding, expected_binding):
+def test_expand_with_rdfs_namespaceconflicts(initial_binding: tuple, rdfs_binding: tuple, expected_binding: list[tuple]) -> None:
     data = Graph()
     rdfs = Graph()
 
@@ -134,11 +134,313 @@ def test_expand_with_rdfs_namespaceconflicts(initial_binding, rdfs_binding, expe
     ]
 )
 @patch(f"{PATCH_LOCATION}.DeductiveClosure.expand")
-def test_expand_with_rdfs_emptygraphs(mock_expand, data_graph, rdfs_graph):
+def test_expand_with_rdfs_emptygraphs(mock_expand: MagicMock, data_graph: Graph, rdfs_graph: Graph) -> None:
     service = ShaclValidationService()
     service._expand_with_rdfs(data_graph, rdfs_graph)
 
     mock_expand.assert_not_called()
+
+# Unit tests ShaclValidationService.summarize_focus_nodes
+@pytest.mark.parametrize(
+    "data_graph, shacl_graph",
+    [
+        pytest.param(None, None, id="No data graph, no SHACL graph"),
+        pytest.param(Graph(), None, id="Empty data graph, no SHACL graph"),
+        pytest.param(None, Graph(), id="No data graph, empty SHACL graph"),
+    ]
+)
+def test_summarize_focus_nodes_nographs(data_graph: Graph, shacl_graph: Graph) -> None:
+    service = ShaclValidationService()
+
+    result = service.summarize_focus_nodes(data_graph, shacl_graph)
+
+    assert result is None
+
+def test_summarize_focus_nodes_noexplicitfocusnodes() -> None:
+    data = Graph()
+    shapes = Graph()
+
+    shape = EX.Shape1
+    shapes.add((shape, RDF.type, SH.NodeShape))
+    shapes.add((shape, SH.targetClass, EX.Person))
+
+    service = ShaclValidationService()
+    result = service.summarize_focus_nodes(data, shapes)
+
+    assert isinstance(result, FocusNodeSummary)
+    assert result.total_shapes == 1
+    assert result.shapes_with_focus_nodes == 0
+
+def test_summarize_focus_nodes_withfocusnodes() -> None:
+    data = Graph()
+    shapes = Graph()
+
+    shape1 = EX.Shape1
+    shapes.add((shape1, RDF.type, SH.NodeShape))
+    shapes.add((shape1, SH.targetClass, EX.Person))
+
+    shape2 = EX.Shape2
+    shapes.add((shape2, RDF.type, SH.NodeShape))
+    shapes.add((shape2, SH.targetNode, EX.special))
+
+    data.add((EX.a, RDF.type, EX.Person))
+    data.add((EX.special, RDF.type, EX.Thing))
+
+    service = ShaclValidationService()
+    result = service.summarize_focus_nodes(data, shapes)
+
+    assert isinstance(result, FocusNodeSummary)
+    assert result.total_shapes == 2
+    assert result.shapes_with_focus_nodes == 2
+
+@pytest.mark.parametrize(
+    "mock_return, expected_result",
+    [
+        pytest.param([], (0, 0), id="No shapes, no focus nodes"),
+        pytest.param([("shape1", set())], (1, 0), id="One shape, no focus nodes"),
+        pytest.param([("shape1", {"node1"})], (1, 1), id="One shape, one focus node"),
+        pytest.param([("shape1", {"node1", "node2"})], (1, 1), id="One shape, multiple focus nodes"),
+        pytest.param([("shape1", set()), ("shape2", {"node2"})], (2, 1), id="Multiple shapes, one with focus nodes"),
+    ]
+)
+@patch(f"{PATCH_LOCATION}.find_focus_nodes")
+def test_summarize_focus_nodes_focusnodesoddreturns(mock_find_focus_nodes: MagicMock, mock_return: list, expected_result: tuple) -> None:
+    mock_find_focus_nodes.return_value = mock_return
+    service = ShaclValidationService()
+
+    result = service.summarize_focus_nodes(Graph(), Graph())
+
+    assert isinstance(result, FocusNodeSummary)
+    assert (result.total_shapes, result.shapes_with_focus_nodes) == expected_result
+
+def test_summarize_focus_nodes_circularshacl() -> None:
+    # Documents what happends if there are circular references between shapes in the SHACL file. 
+    data = Graph()
+    shapes = Graph()
+
+    shape1 = EX.Shape1
+    shape2 = EX.Shape2
+    shapes.add((shape2, RDF.type, SH.NodeShape))
+    shapes.add((shape1, RDF.type, SH.NodeShape))
+
+    shapes.add((shape1, SH.node, shape2))
+    shapes.add((shape2, SH.node, shape1))  # Circular reference to shape1
+
+    data.add((EX.a, RDF.type, EX.Person))
+
+    service = ShaclValidationService()
+    result = service.summarize_focus_nodes(data, shapes)
+
+    assert isinstance(result, FocusNodeSummary)
+    assert result.total_shapes == 2
+    assert result.shapes_with_focus_nodes == 0
+
+# Unit tests find_focus_nodes
+EX = Namespace("http://example.org/")
+
+@pytest.mark.parametrize(
+    "shape_type, shape_triples, data_triples, expected",
+    [
+        pytest.param(
+            EX.Shape_targetClass,
+            [(SH.targetClass, EX.Person)],
+            [(EX.a, RDF.type, EX.Person)],
+            {EX.a},
+            id="targetClass"
+        ),
+        pytest.param(
+            EX.Shape_targetNode,
+            [(SH.targetNode, EX.b)],
+            [],  # data graph irrelevant
+            {EX.b},
+            id="targetNode"
+        ),
+        pytest.param(
+            EX.Shape_targetSubjectsOf,
+            [(SH.targetSubjectsOf, EX.knows)],
+            [(EX.s, EX.knows, EX.o)],
+            {EX.s},
+            id="targetSubjectsOf"
+        ),
+        pytest.param(
+            EX.Shape_targetObjectsOf,
+            [(SH.targetObjectsOf, EX.likes)],
+            [(EX.s, EX.likes, EX.o)],
+            {EX.o},
+            id="targetObjectsOf"
+        ),
+        pytest.param(
+            EX.Shape_targetClass,
+            [(SH.targetClass, EX.Person)],
+            [(EX.a, RDF.type, EX.Person), (EX.b, RDF.type, EX.Person)],
+            {EX.a, EX.b},
+            id="targetClass with multiple matches"
+        ),
+        pytest.param(
+            EX.Shape_noFocus,
+            [(RDF.type, EX.NoFocus)],  # No targeting triples
+            [],  # No data triples
+            set(),
+            id="No focus nodes"
+        ),
+        pytest.param(
+            EX.ShapeMissing,
+            [(RDF.type, SH.NodeShape), (SH.targetClass, EX.doesNotExist), (SH.targetSubjectsOf, EX.nonexistentProp)],
+            [],
+            set(),
+            id="Shape with missing targets"
+        )
+    ]
+)
+def test_find_focus_nodes_shapetypes(shape_type: URIRef, shape_triples: list[tuple], data_triples: list[tuple], expected: set) -> None:
+    data = Graph()
+    shapes = Graph()
+
+    # Add data triples
+    data.add((URIRef("http://example.org/noise"), RDF.type, URIRef("http://example.org/Noise")))  # Extra triple for noise
+    for s, p, o in data_triples:
+        data.add((s, p, o))
+
+    # Create shape
+    shapes.add((shape_type, RDF.type, SH.NodeShape))
+
+    # Add shape triples
+    for p, o in shape_triples:
+        shapes.add((shape_type, p, o))
+
+    results = dict(find_focus_nodes(data, shapes))
+
+    assert shape_type in results
+    assert results[shape_type] == expected
+
+@pytest.mark.parametrize(
+    "shape_defs,data_triples,expected_map",
+    [
+        pytest.param(
+            {
+                EX.Shape1: [(SH.targetClass, EX.Person)],
+                EX.Shape2: [(SH.targetSubjectsOf, EX.knows)],
+            },
+            [
+                (EX.a, RDF.type, EX.Person),
+                (EX.x, EX.knows, EX.y),
+            ],
+            {
+                EX.Shape1: {EX.a},
+                EX.Shape2: {EX.x},
+            },
+            id="targetClass and targetSubjectsOf"
+        ),
+        pytest.param(
+            {
+                EX.ShapeA: [(SH.targetNode, EX.special)],
+                EX.ShapeB: [(SH.targetObjectsOf, EX.likes)],
+            },
+            [
+                (EX.s, EX.likes, EX.o),
+            ],
+            {
+                EX.ShapeA: {EX.special},
+                EX.ShapeB: {EX.o},
+            },
+            id="targetNode and targetObjectsOf"
+        ),
+        pytest.param(
+            {
+                EX.ShapeMulti: [(SH.targetClass, EX.Person), (SH.targetSubjectsOf, EX.knows), (SH.targetNode, EX.special)],
+            },
+            [
+                (EX.a, RDF.type, EX.Person),
+                (EX.x, EX.knows, EX.y),
+            ],
+            {
+                EX.ShapeMulti: {EX.a, EX.x, EX.special},
+            },
+            id="Shape with multiple target types"
+        )
+    ],
+)
+def test_find_focus_nodes_multipleshapes(shape_defs: dict, data_triples: list[tuple], expected_map: dict) -> None:
+    data = Graph()
+    shapes = Graph()
+
+    # Add data
+    for s, p, o in data_triples:
+        data.add((s, p, o))
+
+    # Add shapes
+    for shape, triples in shape_defs.items():
+        shapes.add((shape, RDF.type, SH.NodeShape))
+        for p, o in triples:
+            shapes.add((shape, p, o))
+
+    results = dict(find_focus_nodes(data, shapes))
+
+    assert results == expected_map
+
+def test_find_focus_nodes_noshapes() -> None:
+    data = Graph()
+    shapes = Graph()
+
+    results = dict(find_focus_nodes(data, shapes))
+
+    assert results == {}
+
+@pytest.mark.parametrize(
+    "data_graph, shapes_graph",
+    [
+        pytest.param(None, None, id="No data graph, no shapes graph"),
+        pytest.param(Graph(), None, id="Empty data graph, no shapes graph"),
+        pytest.param(None, Graph(), id="No data graph, empty shapes graph"),
+    ]
+)
+def test_find_focus_nodes_graphnone(data_graph: Graph, shapes_graph: Graph) -> None:
+
+    results = find_focus_nodes(data_graph, shapes_graph)
+
+    assert results == []
+
+
+def test_find_focus_nodes_nodeshape_propertyshape_ordering() -> None:
+    data = Graph()
+    shapes = Graph()
+
+    # Data
+    data.add((EX.a, RDF.type, EX.Person))
+    data.add((EX.s, EX.knows, EX.o))
+
+    # NodeShape
+    shape1 = EX.NodeShape1
+    shapes.add((shape1, RDF.type, SH.NodeShape))
+    shapes.add((shape1, SH.targetClass, EX.Person))
+
+    # PropertyShape
+    shape2 = EX.PropShape2
+    shapes.add((shape2, RDF.type, SH.PropertyShape))
+    shapes.add((shape2, SH.targetSubjectsOf, EX.knows))
+
+    results = find_focus_nodes(data, shapes)
+
+    # Check order: NodeShape first, then PropertyShape
+    assert results[0][0] == shape1
+    assert results[1][0] == shape2
+
+def test_find_focus_nodes_blanknodeshape() -> None:
+    data = Graph()
+    shapes = Graph()
+
+    # Data
+    data.add((EX.a, RDF.type, EX.Person))
+
+    # Blank node shape
+    shape = BNode()
+    shapes.add((shape, RDF.type, SH.NodeShape))
+    shapes.add((shape, SH.targetClass, EX.Person))
+
+    results = dict(find_focus_nodes(data, shapes))
+
+    assert results[shape] == {EX.a}
+
 
 if __name__ == "__main__":
     pytest.main()

@@ -5,7 +5,7 @@ from tkinter import filedialog, ttk
 from typing import Callable
 
 from rdflib import Graph
-
+from rdflib.namespace import SH
 from kgverifypy.file_handling import make_graphs_from, merge_trig_graphs
 from kgverifypy.datatype_enrichment import add_datatypes_from_context
 from kgverifypy.validation_service import ShaclValidationService
@@ -234,7 +234,7 @@ class CIMShaclGUI:
 
 		focus_message = (
 			f"Total number of shapes: {summary.total_shapes}\n"
-			f"Shapes with focus nodes in graph: {summary.shapes_with_focus_nodes}\n"
+			f"Shapes with explicit focus nodes in graph: {summary.shapes_with_focus_nodes}\n"
 		)
 		self._show_output_message(top, focus_message)
 
@@ -247,8 +247,9 @@ class CIMShaclGUI:
 		graph_count = len(self.data_graph) if self.data_graph else 0
 		self._show_output_message(top, f"SHACL validation performed on {graph_count} triples.")
 		self._show_output_message(top, f"Conforms: {result.conforms}")
-
-		if result.conforms == False:
+		
+		if result.results_graph is not None and SH.result in result.results_graph.predicates():	# If there are any results to report save it to file.
+		# if result.conforms == False:
 			output_path = self.validation_output_path.get().strip() or DEFAULT_VALIDATION_OUTPUT
 			output_format = self.validation_output_format.get()
 			saved = self.validation_service.serialize_results(result.results_graph, output_path, output_format)
