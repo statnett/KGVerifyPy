@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import Mock, MagicMock, patch
 from rdflib import Graph, URIRef, BNode
 from rdflib.namespace import RDFS, RDF, Namespace, SH
-from src.kgverifypy.validation_service import FocusNodeSummary, ShaclValidationService, find_focus_nodes
+from src.kgverifypy.validation_service import FocusNodeSummary, ShaclValidationResult, ShaclValidationService, find_focus_nodes
 
 
 PATCH_LOCATION = "src.kgverifypy.validation_service"
@@ -160,6 +160,7 @@ def test_summarize_focus_nodes_noexplicitfocusnodes() -> None:
     data = Graph()
     shapes = Graph()
 
+    EX = Namespace("http://example.org/")
     shape = EX.Shape1
     shapes.add((shape, RDF.type, SH.NodeShape))
     shapes.add((shape, SH.targetClass, EX.Person))
@@ -175,6 +176,7 @@ def test_summarize_focus_nodes_withfocusnodes() -> None:
     data = Graph()
     shapes = Graph()
 
+    EX = Namespace("http://example.org/")
     shape1 = EX.Shape1
     shapes.add((shape1, RDF.type, SH.NodeShape))
     shapes.add((shape1, SH.targetClass, EX.Person))
@@ -218,6 +220,7 @@ def test_summarize_focus_nodes_circularshacl() -> None:
     data = Graph()
     shapes = Graph()
 
+    EX = Namespace("http://example.org/")
     shape1 = EX.Shape1
     shape2 = EX.Shape2
     shapes.add((shape2, RDF.type, SH.NodeShape))
@@ -235,6 +238,119 @@ def test_summarize_focus_nodes_circularshacl() -> None:
     assert result.total_shapes == 2
     assert result.shapes_with_focus_nodes == 0
 
+
+# Unit tests ShaclValidationService.validate_graphs
+@pytest.mark.parametrize(
+    "data_graph, shacl_graph",
+    [        
+        pytest.param(None, None, id="No data graph, no SHACL graph"),
+        pytest.param(Graph(), None, id="Empty data graph, no SHACL graph"),
+        pytest.param(None, Graph(), id="No data graph, empty SHACL graph"),
+    ]
+)
+@patch(f"{PATCH_LOCATION}.validate")
+def test_validate_graphs_nographs(mock_validate: MagicMock, data_graph: Graph | None, shacl_graph: Graph | None) -> None:
+    service = ShaclValidationService()
+
+    result = service.validate_graphs(data_graph, shacl_graph, None)
+
+    assert result is None
+    mock_validate.assert_not_called()
+
+@pytest.mark.parametrize(
+    "rdfs_graph",
+    [
+        pytest.param(None, id="No RDFS graph"),
+        pytest.param(Graph(), id="Empty RDFS graph"),
+    ]
+)
+@patch(f"{PATCH_LOCATION}.validate")
+def test_validate_graphs_rdfsgraphs(mock_validate: MagicMock, rdfs_graph: Graph) -> None:
+    mock_graph = Graph()
+    mock_validate.return_value = (True, mock_graph, None)  # Mocking a successful validation with an empty results graph
+
+    EX = Namespace("http://example.org/")
+    data_graph = Graph()
+    data_graph.bind("ex", EX)
+    data_graph.add((EX.a, RDF.type, EX.Person))
+    shacl_graph = Graph()
+    shacl_graph.bind("ex", EX)
+    shacl_graph.add((EX.Shape1, RDF.type, SH.NodeShape))
+
+    service = ShaclValidationService()
+    result = service.validate_graphs(data_graph, shacl_graph, rdfs_graph)
+
+    assert isinstance(result, ShaclValidationResult)
+    assert result.conforms is True
+    assert result.results_graph is mock_graph
+
+    if rdfs_graph is None:
+        mock_validate.assert_called_once_with(
+            data_graph,
+            shacl_graph=shacl_graph,
+            ont_graph=None,
+            inference="none",
+            debug=False,
+        )
+    else:
+        mock_validate.assert_called_once_with(
+            data_graph,
+            shacl_graph=shacl_graph,
+            ont_graph=rdfs_graph,
+            inference="rdfs",
+            debug=False,
+        )
+
+
+@pytest.mark.parametrize(
+    "return_value",
+    [
+        pytest.param((True, Graph(), None), id="Expected return types"),
+        pytest.param(("false", Graph(), None), id="Unexpected conforms type"),
+        pytest.param((True, "not a graph", None), id="Unexpected results graph type"),
+        pytest.param((True, Graph(), "whatever"), id="Last tuple value is irrelevant"),
+    ]
+)
+@patch(f"{PATCH_LOCATION}.validate")
+def test_validate_graphs_oddreturns(mock_validate: MagicMock, return_value: tuple) -> None:
+    mock_validate.return_value = return_value
+
+    EX = Namespace("http://example.org/")
+    data_graph = Graph()
+    data_graph.bind("ex", EX)
+    data_graph.add((EX.a, RDF.type, EX.Person))
+    shacl_graph = Graph()
+    shacl_graph.bind("ex", EX)
+    shacl_graph.add((EX.Shape1, RDF.type, SH.NodeShape))
+
+    service = ShaclValidationService()
+    result = service.validate_graphs(data_graph, shacl_graph, None)
+
+    assert isinstance(result, ShaclValidationResult)
+    assert result.conforms == (return_value[0] if isinstance(return_value[0], bool) else False)
+    assert result.results_graph == (return_value[1] if isinstance(return_value[1], Graph) else None)
+
+
+# Unit tests ShaclValidationService.serialize_results
+def test_serialize_results_nonegraph() -> None:
+    service = ShaclValidationService()
+    result = service.serialize_results(None, "output.ttl", "turtle")
+
+    assert result is False
+
+def test_serialize_results_validgraph() -> None:
+    service = ShaclValidationService()
+    graph = Graph()
+    EX = Namespace("http://example.org/")
+    graph.add((EX.a, RDF.type, EX.Person))
+    graph.serialize = Mock()
+
+    output_file = "output.ttl"
+    result = service.serialize_results(graph, output_file, "ttl")
+
+    assert result is True
+    graph.serialize.assert_called_once_with(destination=output_file, format="ttl")
+    
 # Unit tests find_focus_nodes
 EX = Namespace("http://example.org/")
 
@@ -406,10 +522,12 @@ def test_find_focus_nodes_nodeshape_propertyshape_ordering() -> None:
     shapes = Graph()
 
     # Data
+    EX = Namespace("http://example.org/")
     data.add((EX.a, RDF.type, EX.Person))
     data.add((EX.s, EX.knows, EX.o))
 
     # NodeShape
+    EX = Namespace("http://example.org/")
     shape1 = EX.NodeShape1
     shapes.add((shape1, RDF.type, SH.NodeShape))
     shapes.add((shape1, SH.targetClass, EX.Person))
@@ -430,6 +548,7 @@ def test_find_focus_nodes_blanknodeshape() -> None:
     shapes = Graph()
 
     # Data
+    EX = Namespace("http://example.org/")
     data.add((EX.a, RDF.type, EX.Person))
 
     # Blank node shape

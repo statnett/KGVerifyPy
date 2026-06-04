@@ -6,6 +6,7 @@ from rdflib.namespace import RDF, SH
 from pyshacl import validate
 from owlrl import DeductiveClosure, RDFS_Semantics
 from kgverifypy.datatype_enrichment import add_datatypes_from_context
+from typing import Optional
 import logging
 
 logger = logging.getLogger("primary")
@@ -87,13 +88,23 @@ class ShaclValidationService:
 			shapes_with_focus_nodes=shapes_with_focus_nodes,
 		)
 
-	def validate_graphs(self, data_graph: Graph | None, shacl_graph: Graph | None, rdfs_graph: Graph | None) -> ShaclValidationResult | None:
+	def validate_graphs(self, data_graph: Graph | None, shacl_graph: Graph | None, rdfs_graph: Optional[Graph]) -> ShaclValidationResult | None:
+		"""Validate the data graph against the SHACL shapes graph, optionally using RDFS semantics from the provided RDFS graph.
+		
+		Parameters:
+			data_graph (Graph | None): The RDF graph containing the data to be validated.
+			shacl_graph (Graph | None): The RDF graph containing the SHACL shapes.
+			rdfs_graph (Optional[Graph]): An optional RDF graph containing RDFS semantics to expand the data graph.
+
+		Returns:
+			ShaclValidationResult | None: The result of the SHACL validation, or None if either graph is not provided.
+		"""
 		if data_graph is None or shacl_graph is None:
 			return None
 		
 		inference = "rdfs" if rdfs_graph is not None else "none"
 			
-		conforms, results_graph, _ = validate(
+		conforms_info, results_graph, _ = validate(
 			data_graph,
 			shacl_graph=shacl_graph,
 			ont_graph=rdfs_graph,
@@ -101,11 +112,22 @@ class ShaclValidationService:
 			debug=False,
 		)
 		
-		assert isinstance(conforms, bool)
+		conforms = conforms_info if isinstance(conforms_info, bool) else False
 		graph_result = results_graph if isinstance(results_graph, Graph) else None
 		return ShaclValidationResult(conforms=conforms, results_graph=graph_result)
 	
+
 	def serialize_results(self, results_graph: Graph | None, output_path: str, output_format: str) -> bool:
+		"""Serialize the SHACL validation results graph to a file in the specified format.
+		
+		Parameters:
+			results_graph (Graph | None): The RDF graph containing the SHACL validation results to be serialized.
+			output_path (str): The file path where the results graph should be saved.
+			output_format (str): The format to use for serialization (e.g., "ttl", "xml", "json-ld").
+
+		Returns:
+			bool: True if serialization was successful, False otherwise.
+		"""
 		if results_graph is None:
 			return False
 		results_graph.serialize(destination=output_path, format=output_format)
