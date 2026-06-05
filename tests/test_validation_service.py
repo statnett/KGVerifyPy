@@ -2,8 +2,13 @@ import pytest
 from unittest.mock import Mock, MagicMock, patch
 from rdflib import Graph, URIRef, BNode
 from rdflib.namespace import RDFS, RDF, Namespace, SH
-from src.kgverifypy.validation_service import FocusNodeSummary, ShaclValidationResult, ShaclValidationService, find_focus_nodes
-
+from src.kgverifypy.validation_service import (
+    FocusNodeSummary, 
+    ShaclValidationResult, 
+    ShaclValidationService, 
+    find_focus_nodes, 
+    summarize_validation_results,
+)
 
 PATCH_LOCATION = "src.kgverifypy.validation_service"
 
@@ -264,11 +269,12 @@ def test_validate_graphs_nographs(mock_validate: MagicMock, data_graph: Graph | 
         pytest.param(Graph(), id="Empty RDFS graph"),
     ]
 )
+@patch(f"{PATCH_LOCATION}.summarize_validation_results")
 @patch(f"{PATCH_LOCATION}.validate")
-def test_validate_graphs_rdfsgraphs(mock_validate: MagicMock, rdfs_graph: Graph) -> None:
+def test_validate_graphs_rdfsgraphs(mock_validate: MagicMock, mock_summarize: MagicMock, rdfs_graph: Graph) -> None:
     mock_graph = Graph()
     mock_validate.return_value = (True, mock_graph, None)  # Mocking a successful validation with an empty results graph
-
+    mock_summarize.return_value = [("ConstraintA", 2), ("ConstraintB", 1)]  # Mocking summary results
     EX = Namespace("http://example.org/")
     data_graph = Graph()
     data_graph.bind("ex", EX)
@@ -283,7 +289,9 @@ def test_validate_graphs_rdfsgraphs(mock_validate: MagicMock, rdfs_graph: Graph)
     assert isinstance(result, ShaclValidationResult)
     assert result.conforms is True
     assert result.results_graph is mock_graph
+    assert result.summary_validation_results == [("ConstraintA", 2), ("ConstraintB", 1)]
 
+    mock_summarize.assert_called_once_with(mock_graph)
     if rdfs_graph is None:
         mock_validate.assert_called_once_with(
             data_graph,
@@ -311,9 +319,11 @@ def test_validate_graphs_rdfsgraphs(mock_validate: MagicMock, rdfs_graph: Graph)
         pytest.param((True, Graph(), "whatever"), id="Last tuple value is irrelevant"),
     ]
 )
+@patch(f"{PATCH_LOCATION}.summarize_validation_results")
 @patch(f"{PATCH_LOCATION}.validate")
-def test_validate_graphs_oddreturns(mock_validate: MagicMock, return_value: tuple) -> None:
+def test_validate_graphs_oddreturns(mock_validate: MagicMock, mock_summarize: MagicMock, return_value: tuple) -> None:
     mock_validate.return_value = return_value
+    mock_summarize.return_value = [("ConstraintA", 2), ("ConstraintB", 1)]
 
     EX = Namespace("http://example.org/")
     data_graph = Graph()
@@ -329,7 +339,7 @@ def test_validate_graphs_oddreturns(mock_validate: MagicMock, return_value: tupl
     assert isinstance(result, ShaclValidationResult)
     assert result.conforms == (return_value[0] if isinstance(return_value[0], bool) else False)
     assert result.results_graph == (return_value[1] if isinstance(return_value[1], Graph) else None)
-
+    assert result.summary_validation_results == (mock_summarize.return_value if isinstance(return_value[1], Graph) else None)
 
 # Unit tests ShaclValidationService.serialize_results
 def test_serialize_results_nonegraph() -> None:
@@ -559,6 +569,56 @@ def test_find_focus_nodes_blanknodeshape() -> None:
     results = dict(find_focus_nodes(data, shapes))
 
     assert results[shape] == {EX.a}
+
+
+# Unit tests summarize_validation_results
+@pytest.mark.parametrize(
+    "graph",
+    [
+        pytest.param(None, id="No graph"),
+        pytest.param(Graph(), id="Empty graph"),
+    ]
+)
+def test_summarize_validation_results_nograph(graph: Graph | None) -> None:
+    # Pylance ignored for testing wrong input type
+    result = summarize_validation_results(graph) # type: ignore
+
+    assert result == []
+
+
+def test_summarize_validation_results_nomatching() -> None:
+    graph = Graph()
+    EX = Namespace("http://example.org/")
+    graph.add((EX.a, EX.b, EX.c))
+
+    result = summarize_validation_results(graph)
+
+    assert result == []
+
+
+def test_summarize_validation_results_multiplehits() -> None:
+    graph = Graph()
+    EX = Namespace("http://example.org/")
+    graph.add((EX.violation1, EX.noise, EX.ConstraintC))
+    graph.add((EX.violation1, SH.sourceConstraintComponent, EX.ConstraintA))
+    graph.add((EX.violation2, SH.sourceConstraintComponent, EX.ConstraintA))
+    graph.add((EX.violation3, SH.sourceConstraintComponent, EX.ConstraintB))
+
+    result = summarize_validation_results(graph)
+
+    assert result == [(EX.ConstraintA, 2), (EX.ConstraintB, 1)]
+
+def test_summarize_validation_results_acceptssubclasses() -> None:
+    class SubGraph(Graph):
+        pass
+
+    graph = SubGraph()  # Using a subclass of Graph to test isinstance check
+    EX = Namespace("http://example.org/")
+    graph.add((EX.violation1, SH.sourceConstraintComponent, EX.ConstraintA))
+
+    result = summarize_validation_results(graph)
+
+    assert result == [(EX.ConstraintA, 1)]
 
 
 if __name__ == "__main__":

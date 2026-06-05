@@ -1,7 +1,8 @@
 """Validation-focused service layer for SHACL operations."""
 
 from dataclasses import dataclass
-from rdflib import Graph
+from collections import Counter
+from rdflib import Graph, URIRef
 from rdflib.namespace import RDF, SH
 from pyshacl import validate
 from owlrl import DeductiveClosure, RDFS_Semantics
@@ -25,6 +26,7 @@ class ShaclValidationResult:
 
 	conforms: bool
 	results_graph: Graph | None
+	summary_validation_results: Optional[list[tuple[URIRef, int]]] = None
 
 
 class ShaclValidationService:
@@ -114,7 +116,9 @@ class ShaclValidationService:
 		
 		conforms = conforms_info if isinstance(conforms_info, bool) else False
 		graph_result = results_graph if isinstance(results_graph, Graph) else None
-		return ShaclValidationResult(conforms=conforms, results_graph=graph_result)
+		summary_results = summarize_validation_results(graph_result) if graph_result is not None else None	
+		
+		return ShaclValidationResult(conforms=conforms, results_graph=graph_result, summary_validation_results=summary_results)
 	
 
 	def serialize_results(self, results_graph: Graph | None, output_path: str, output_format: str) -> bool:
@@ -180,6 +184,24 @@ def find_focus_nodes(data_graph: Graph, shapes_graph: Graph) -> list[tuple[str, 
 
 	return results
 
+
+def summarize_validation_results(graph: Graph) -> list[tuple[URIRef, int]]:
+	"""Summarize the validation results by counting occurrences of each constraint component.
+
+	Parameters:
+		graph (Graph): The RDF graph containing the SHACL validation results.
+
+	Returns:
+		list[tuple[URIRef, int]]: The constraint component URIs and their counts.
+	"""
+	if not isinstance(graph, Graph):
+		return []
+
+	counter_errortype = Counter()
+	for _, _, error_type in graph.triples((None, SH.sourceConstraintComponent, None)):
+		counter_errortype[error_type] += 1
+	
+	return counter_errortype.most_common()
 
 if __name__ == "__main__":
 	print("Classes for handling pyshacl validation logic.")

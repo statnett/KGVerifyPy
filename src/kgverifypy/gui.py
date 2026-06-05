@@ -12,8 +12,8 @@ from kgverifypy.validation_service import ShaclValidationService
 
 DEFAULT_MAIN_GEOMETRY = "760x560"
 DEFAULT_MAIN_MIN_SIZE = (680, 380)
-DEFAULT_OUTPUT_GEOMETRY = "560x280"
-DEFAULT_OUTPUT_MIN_SIZE = (480, 240)
+DEFAULT_OUTPUT_GEOMETRY = "760x560"
+DEFAULT_OUTPUT_MIN_SIZE = (680, 420)
 DEFAULT_VALIDATION_OUTPUT = "../validation_results.json"
 UI_FONT = ("TkDefaultFont", 12)
 OUTPUT_FONT = ("TkDefaultFont", 13)
@@ -215,8 +215,8 @@ class CIMShaclGUI:
 		except Exception as e:
 			self._show_output_message(top, f"An error occurred:\n {str(e)}")
 
-	def _show_output_message(self, top: tk.Toplevel, message: str) -> None:
-		ttk.Label(top, text=message, padding=2, font=OUTPUT_FONT).pack(fill="both", expand=True)
+	def _show_output_message(self, top: tk.Toplevel, message: str, padding: int = 2) -> None:
+		ttk.Label(top, text=message, padding=padding, font=OUTPUT_FONT).pack(fill="both", expand=True)
 
 	def _prepare_data_graph(self) -> None:
 		if self.data_graph is None:
@@ -246,15 +246,22 @@ class CIMShaclGUI:
 
 		graph_count = len(self.data_graph) if self.data_graph else 0
 		self._show_output_message(top, f"SHACL validation performed on {graph_count} triples.")
-		self._show_output_message(top, f"Conforms: {result.conforms}")
-		
+		self._show_output_message(top, f"Conforms: {result.conforms}", padding=4)
+		print(result.summary_validation_results)
+		if result.summary_validation_results is not None:
+			message = "Summary of validation results (error type and count):\n"
+			for error_type, count in result.summary_validation_results:
+				message += f"{error_type}: {count}\n"
+
+			self._show_output_message(top, message, padding=4)
+
 		if result.results_graph is not None and SH.result in result.results_graph.predicates():	# If there are any results to report save it to file.
 		# if result.conforms == False:
 			output_path = self.validation_output_path.get().strip() or DEFAULT_VALIDATION_OUTPUT
 			output_format = self.validation_output_format.get()
 			saved = self.validation_service.serialize_results(result.results_graph, output_path, output_format)
 			if saved:
-				self._show_output_message(top, f"Validation report saved to: {output_path}")
+				self._show_output_message(top, f"Validation report saved to: {output_path}", padding=4)
 
 def main() -> None:
 	CIMShaclGUI()
