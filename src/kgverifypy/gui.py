@@ -9,6 +9,7 @@ from rdflib.namespace import SH
 from kgverifypy.file_handling import make_graphs_from, merge_trig_graphs
 from kgverifypy.datatype_enrichment import add_datatypes_from_context
 from kgverifypy.validation_service import ShaclValidationService
+from kgverifypy.csv_utilites import collect_violations, write_violations_to_csv
 
 DEFAULT_MAIN_GEOMETRY = "760x560"
 DEFAULT_MAIN_MIN_SIZE = (680, 380)
@@ -33,8 +34,9 @@ class CIMShaclGUI:
 		self.data_format = tk.StringVar(value="cimxml")
 		self.validation_output_path = tk.StringVar(value=DEFAULT_VALIDATION_OUTPUT)
 		self.validation_output_format = tk.StringVar(value="json-ld")
-		self.use_url_var = tk.BooleanVar(value=False)
+		self.add_datatypes_var = tk.BooleanVar(value=False)
 		self.custom_url_var = tk.StringVar()
+		self.csv_report_var = tk.BooleanVar(value=False)
 
 		self.rdfs_graph: Graph | None = None
 		self.data_graph: Graph | None = None
@@ -122,7 +124,7 @@ class CIMShaclGUI:
 		ttk.Label(frame, text="Enrich graph datatypes using context:").grid(row=row, column=0, sticky="w", pady=(10, 6))
 		row += 1
 
-		check = tk.Checkbutton(frame, text="Add datatypes", variable=self.use_url_var)
+		check = ttk.Checkbutton(frame, text="Add datatypes", variable=self.add_datatypes_var)
 		check.grid(row=row, column=0, sticky="w")
 		row += 1
 
@@ -148,6 +150,10 @@ class CIMShaclGUI:
 		ttk.Radiobutton(validation_format_frame, text="JSON-LD", variable=self.validation_output_format, value="json-ld").pack(side="left", padx=(0, 12))
 		ttk.Radiobutton(validation_format_frame, text="TTL", variable=self.validation_output_format, value="ttl").pack(side="left", padx=(0, 12))
 		ttk.Radiobutton(validation_format_frame, text="RDF", variable=self.validation_output_format, value="xml").pack(side="left")
+		row += 1
+
+		check = ttk.Checkbutton(frame, text="CSV report", variable=self.csv_report_var)
+		check.grid(row=row, column=0, sticky="w", pady=(10, 6))
 		row += 1
 
 		return row
@@ -225,7 +231,7 @@ class CIMShaclGUI:
 		context_url = self.custom_url_var.get().strip()
 		if not context_url:
 			context_url = None
-		self.validation_service.prepare_data_for_validation(self.data_graph, self.rdfs_graph, add_datatypes=self.use_url_var.get(), context_url=context_url)
+		self.validation_service.prepare_data_for_validation(self.data_graph, self.rdfs_graph, add_datatypes=self.add_datatypes_var.get(), context_url=context_url)
 			
 	def _report_focus_nodes(self, top: tk.Toplevel) -> None:
 		summary = self.validation_service.summarize_focus_nodes(self.data_graph, self.shacl_graph)
@@ -246,8 +252,8 @@ class CIMShaclGUI:
 
 		graph_count = len(self.data_graph) if self.data_graph else 0
 		self._show_output_message(top, f"SHACL validation performed on {graph_count} triples.")
-		self._show_output_message(top, f"Conforms: {result.conforms}", padding=4)
-		print(result.summary_validation_results)
+		self._show_output_message(top, f"Conforms: {result.conforms}", padding=2)
+
 		if result.summary_validation_results is not None:
 			message = "Summary of validation results (error type and count):\n"
 			for error_type, count in result.summary_validation_results:
@@ -261,7 +267,13 @@ class CIMShaclGUI:
 			output_format = self.validation_output_format.get()
 			saved = self.validation_service.serialize_results(result.results_graph, output_path, output_format)
 			if saved:
-				self._show_output_message(top, f"Validation report saved to: {output_path}", padding=4)
+				self._show_output_message(top, f"Validation report saved to: {output_path}", padding=0)
+
+			if self.csv_report_var.get():
+				csv_result = collect_violations(result.results_graph)
+				csv_output_path = output_path.rsplit(".", 1)[0] + ".csv"
+				write_violations_to_csv(csv_result, csv_output_path)
+				self._show_output_message(top, f"Validation report saved as CSV to: {csv_output_path}", padding=0)
 
 def main() -> None:
 	CIMShaclGUI()
