@@ -1,8 +1,7 @@
 from rdflib import Graph, Dataset
 from pathlib import Path
-from kgraphpy.graph import CIMGraph
-from kgraphpy.utilities import load_graphs_from_cimxml
 from typing import Sequence, Union
+import json
 
 def make_graphs_from(files: Union[str, Path, Sequence[Union[str, Path]]], format: str = "xml") -> Graph:
     """Create a Graph from one or more files.
@@ -50,6 +49,20 @@ def merge_trig_graphs(files: Union[str, Path, Sequence[Union[str, Path]]]) -> Gr
         g += graph
 
     return g
+
+
+def context_from_file(json_file_path: str) -> dict:
+    """Load a JSON-LD context from a file and return it as a dictionary.
+    
+    Parameters:
+        json_file_path (str): The path to the JSON file containing the context.
+    Returns:
+        dict: The JSON-LD context loaded from the file.
+    """
+    with open(json_file_path, 'r', encoding='utf-8') as f:
+        context_data = json.load(f)
+
+    return context_data
 
 # Not used, but may be needed in the future if we want to do things that are done via a CIMProcessor.
 # def make_data_graph_from_cimxml_old(files: Union[str, Path, Sequence[Union[str, Path]]]) -> Graph:

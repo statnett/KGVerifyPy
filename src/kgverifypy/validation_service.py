@@ -32,14 +32,14 @@ class ShaclValidationResult:
 class ShaclValidationService:
 	"""Pure SHACL validation and reporting operations."""
 
-	def prepare_data_for_validation(self, data_graph: Graph, rdfs_graph: Graph | None, add_datatypes: bool = False, context_url: str | None = None) -> None:
+	def prepare_data_for_validation(self, data_graph: Graph, rdfs_graph: Graph | None, add_datatypes: bool = False, context_data: dict | None = None) -> None:
 		"""Prepare the data graph for SHACL validation by optionally expanding with RDFS semantics and adding datatypes from a context.
 		
 		Parameters:
 			data_graph (Graph): The RDF graph containing the data to be validated.
 			rdfs_graph (Graph | None): An optional RDF graph containing RDFS semantics to expand the data graph.
 			add_datatypes (bool): Whether to add datatypes from a context.
-			context_url (str | None): The URL of the context to use for adding datatypes. If None a default context is applied.
+			context_data (dict | None): The context data to use for adding datatypes. If None a default context is applied.
 		"""
 		if data_graph is None:
 			return
@@ -49,8 +49,8 @@ class ShaclValidationService:
 			self._expand_with_rdfs(data_graph, rdfs_graph)
 
 		if add_datatypes:
-			logger.info(f"Adding datatypes from context: {context_url if context_url else 'default context'}")
-			add_datatypes_from_context(data_graph, context_url)
+			logger.info(f"Adding datatypes from context: {'custom context' if context_data else 'default context'}")
+			add_datatypes_from_context(data_graph, context_data)
 
 	
 	def _expand_with_rdfs(self, data_graph: Graph, rdfs_graph: Graph) -> None:

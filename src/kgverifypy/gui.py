@@ -6,18 +6,47 @@ from typing import Callable
 
 from rdflib import Graph
 from rdflib.namespace import SH
-from kgverifypy.file_handling import make_graphs_from, merge_trig_graphs
-from kgverifypy.datatype_enrichment import add_datatypes_from_context
+from kgverifypy.file_handling import make_graphs_from, merge_trig_graphs, context_from_file
 from kgverifypy.validation_service import ShaclValidationService
 from kgverifypy.csv_utilites import collect_violations, write_violations_to_csv
 
-DEFAULT_MAIN_GEOMETRY = "760x560"
-DEFAULT_MAIN_MIN_SIZE = (680, 380)
+DEFAULT_MAIN_GEOMETRY = "760x680"
+DEFAULT_MAIN_MIN_SIZE = (680, 560)
 DEFAULT_OUTPUT_GEOMETRY = "760x560"
 DEFAULT_OUTPUT_MIN_SIZE = (680, 420)
 DEFAULT_VALIDATION_OUTPUT = "../validation_results.json"
 UI_FONT = ("TkDefaultFont", 12)
 OUTPUT_FONT = ("TkDefaultFont", 13)
+
+
+
+class CollapsibleSection(ttk.Frame):
+	def __init__(self, parent, title="Section"):
+		super().__init__(parent)
+
+		self.title = title
+		self.open = False
+
+		self.header_btn = ttk.Button(
+			self,
+			text=f"[+] {self.title}",
+			command=self.toggle,
+			style="Toolbutton",
+		)
+		self.header_btn.pack(fill="x")
+
+		self.content = ttk.Frame(self)
+		self.content.columnconfigure(0, weight=1)
+
+	def toggle(self):
+		self.open = not self.open
+
+		if self.open:
+			self.header_btn.config(text=f"[-] {self.title}")
+			self.content.pack(fill="x", padx=10, pady=5)
+		else:
+			self.header_btn.config(text=f"[+] {self.title}")
+			self.content.forget()
 
 class CIMShaclGUI:
 	"""GUI for selecting multiple files and displaying a run summary."""
@@ -30,6 +59,7 @@ class CIMShaclGUI:
 		self.data_files: list[str] = []
 		self.rdfs_files: list[str] = []
 		self.shacl_file: str = ""
+		self.datatype_file: str = ""
 		self.shacl_format = tk.StringVar(value="ttl")
 		self.data_format = tk.StringVar(value="cimxml")
 		self.validation_output_path = tk.StringVar(value=DEFAULT_VALIDATION_OUTPUT)
@@ -69,12 +99,24 @@ class CIMShaclGUI:
 		frame.columnconfigure(0, weight=1)
 
 		self.data_var = tk.StringVar(value="No files selected")
-		self.rdfs_var = tk.StringVar(value="No files selected")
 		self.shacl_var = tk.StringVar(value="No files selected")
 
 		row = 0
 		row = self._file_selection_section(frame, row)
-		row = self._datatype_section(frame, row)
+		row += 1
+		
+		# For adding rdfs files
+		rdfs_section = CollapsibleSection(frame, title="Add rdfs files")
+		rdfs_section.grid(row=row, column=0, sticky="ew", pady=(20, 10))
+		self.rdfs_section(rdfs_section.content, 0)
+		row += 1
+
+		# For adding datatypes from context
+		datatype_section = CollapsibleSection(frame, title="Datatype enrichment options")
+		datatype_section.grid(row=row, column=0, sticky="ew", pady=(0, 20))
+		self._datatype_section(datatype_section.content, 0)
+		row += 1
+		
 		row = self._shacl_output_section(frame, row)
 
 		ttk.Button(frame, text="Run", command=self.run).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(14, 0))
@@ -91,15 +133,11 @@ class CIMShaclGUI:
 		ttk.Radiobutton(data_format_frame, text="CIMXML", variable=self.data_format, value="cimxml").pack(side="left", padx=(0, 12))
 		ttk.Radiobutton(data_format_frame, text="RDF/XML", variable=self.data_format, value="xml").pack(side="left", padx=(0, 12))
 		ttk.Radiobutton(data_format_frame, text="JSON-LD", variable=self.data_format, value="json-ld").pack(side="left", padx=(0, 12))
-		ttk.Radiobutton(data_format_frame, text="TRIG", variable=self.data_format, value="trig").pack(side="left")
+		ttk.Radiobutton(data_format_frame, text="TRIG", variable=self.data_format, value="trig").pack(side="left", padx=(0, 12))
+		ttk.Radiobutton(data_format_frame, text="TTL", variable=self.data_format, value="ttl").pack(side="left")
 		row += 1
 
 		row = self._add_file_picker_row(frame, row, self.data_var, self.select_data_files)
-
-		# RDFS files
-		ttk.Label(frame, text="rdfs files:").grid(row=row, column=0, sticky="w", pady=(10, 6))
-		row += 1
-		row = self._add_file_picker_row(frame, row, self.rdfs_var, self.select_rdfs_files)
 
 		# SHACL files
 		ttk.Label(frame, text="shacl files:").grid(row=row, column=0, sticky="w", pady=(10, 6))
@@ -112,37 +150,41 @@ class CIMShaclGUI:
 		row += 1
 
 		row = self._add_file_picker_row(frame, row, self.shacl_var, self.select_shacl_file)
-		# ttk.Entry(frame, textvariable=self.shacl_var, state="readonly").grid(row=row, column=0, sticky="ew", padx=(0, 8))
-		# ttk.Button(frame, text="Browse", command=self.select_shacl_file).grid(row=row, column=1, sticky="ew")
 		row += 1
 
 		return row
 	
+	def rdfs_section(self, frame: ttk.Frame, start_row: int) -> int:
+		row = start_row
+
+		self.rdfs_var = tk.StringVar(value="No files selected")
+
+		# ttk.Label(frame, text="rdfs files:").grid(row=row, column=0, sticky="w", pady=(10, 6))
+		row = self._add_file_picker_row(frame, row, self.rdfs_var, self.select_rdfs_files)
+		row += 1
+		return row
+
 	def _datatype_section(self, frame: ttk.Frame, start_row: int) -> int:
 		row = start_row
 
-		ttk.Label(frame, text="Enrich graph datatypes using context:").grid(row=row, column=0, sticky="w", pady=(10, 6))
-		row += 1
+		self.datatype_file_var = tk.StringVar(value="If left empty a default context will be used")
 
 		check = ttk.Checkbutton(frame, text="Add datatypes", variable=self.add_datatypes_var)
 		check.grid(row=row, column=0, sticky="w")
 		row += 1
 
-		ttk.Label(frame, text="Custom context URL").grid(row=row, column=0, sticky="w", pady=(10, 6))
+		ttk.Label(frame, text="Custom context file:").grid(row=row, column=0, sticky="w", pady=(10, 6))
 		row += 1
-		ttk.Entry(frame, textvariable=self.custom_url_var).grid(row=row, column=0, columnspan=2, sticky="ew")
+		row = self._add_file_picker_row(frame, row, self.datatype_file_var, self.select_datatype_file)
+		# ttk.Entry(frame, textvariable=self.custom_url_var).grid(row=row, column=0, columnspan=2, sticky="ew")		
 		row += 1
 
 		return row
 
 	def _shacl_output_section(self, frame: ttk.Frame, start_row: int) -> int:
 		row = start_row
-		ttk.Label(frame, text="Validation output file path:").grid(row=row, column=0, sticky="w", pady=(10, 6))
-		row += 1
-		ttk.Entry(frame, textvariable=self.validation_output_path).grid(row=row, column=0, columnspan=2, sticky="ew")
-		row += 1
 
-		ttk.Label(frame, text="Validation output format:").grid(row=row, column=0, sticky="w", pady=(10, 6))
+		ttk.Label(frame, text="Validation output file path:").grid(row=row, column=0, sticky="w", pady=(10, 6))
 		row += 1
 
 		validation_format_frame = ttk.Frame(frame)
@@ -150,6 +192,9 @@ class CIMShaclGUI:
 		ttk.Radiobutton(validation_format_frame, text="JSON-LD", variable=self.validation_output_format, value="json-ld").pack(side="left", padx=(0, 12))
 		ttk.Radiobutton(validation_format_frame, text="TTL", variable=self.validation_output_format, value="ttl").pack(side="left", padx=(0, 12))
 		ttk.Radiobutton(validation_format_frame, text="RDF", variable=self.validation_output_format, value="xml").pack(side="left")
+		row += 1
+
+		ttk.Entry(frame, textvariable=self.validation_output_path).grid(row=row, column=0, columnspan=2, sticky="ew")
 		row += 1
 
 		check = ttk.Checkbutton(frame, text="CSV report", variable=self.csv_report_var)
@@ -195,7 +240,14 @@ class CIMShaclGUI:
 		if file:
 			self.shacl_file = file
 			self.shacl_graph = make_graphs_from(self.shacl_file, format=self.shacl_format.get())
-			self.shacl_var.set("1 file selected")
+			self.shacl_var.set(file)
+
+	def select_datatype_file(self) -> None:
+		file = filedialog.askopenfilename(title="Select context file for datatype enrichment")
+		if file:
+			self.datatype_file = file
+			self.datatypes: dict = context_from_file(self.datatype_file)
+			self.datatype_file_var.set(file)
 
 	def run(self) -> None:
 		data_count = len(self.data_graph) if self.data_graph else 0
@@ -228,10 +280,8 @@ class CIMShaclGUI:
 		if self.data_graph is None:
 			return
 		
-		context_url = self.custom_url_var.get().strip()
-		if not context_url:
-			context_url = None
-		self.validation_service.prepare_data_for_validation(self.data_graph, self.rdfs_graph, add_datatypes=self.add_datatypes_var.get(), context_url=context_url)
+		context_data = self.datatypes if self.datatype_file else None
+		self.validation_service.prepare_data_for_validation(self.data_graph, self.rdfs_graph, add_datatypes=self.add_datatypes_var.get(), context_data=context_data)
 			
 	def _report_focus_nodes(self, top: tk.Toplevel) -> None:
 		summary = self.validation_service.summarize_focus_nodes(self.data_graph, self.shacl_graph)
@@ -254,7 +304,7 @@ class CIMShaclGUI:
 		self._show_output_message(top, f"SHACL validation performed on {graph_count} triples.")
 		self._show_output_message(top, f"Conforms: {result.conforms}", padding=2)
 
-		if result.summary_validation_results is not None:
+		if result.summary_validation_results:
 			message = "Summary of validation results (error type and count):\n"
 			for error_type, count in result.summary_validation_results:
 				message += f"{error_type}: {count}\n"

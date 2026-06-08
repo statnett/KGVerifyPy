@@ -14,25 +14,25 @@ PATCH_LOCATION = "src.kgverifypy.validation_service"
 
 # Unit tests ShaclValidationService.prepare_data_for_validation
 @pytest.mark.parametrize(
-        "rdfs_graph, datatypes, context_url",
+        "rdfs_graph, datatypes, context_dict",
         [
             pytest.param(None, False, None, id="Nothing to expand, no datatypes"),
-            pytest.param(None, True, "http://example.com/context", id="No RDFS graph, but add datatypes, custom context"),
+            pytest.param(None, True, {"@context": "http://example.com/context"}, id="No RDFS graph, but add datatypes, custom context"),
             pytest.param(None, True, None, id="No RDFS graph, but add datatypes"),
             pytest.param(Graph(), False, None, id="RDFS graph, no datatypes"),
-            pytest.param(Graph(), True, "http://example.com/context", id="RDFS graph, add datatypes, custom context"),
+            pytest.param(Graph(), True, {"@context": "http://example.com/context"}, id="RDFS graph, add datatypes, custom context"),
             pytest.param(Graph(), True, None, id="RDFS graph, add datatypes"),
-            pytest.param(None, True, "", id="Empty custom context"),
+            pytest.param(None, True, {}, id="Empty custom context"),
         ]
 )
 @patch(f"{PATCH_LOCATION}.add_datatypes_from_context")
-def test_prepare_data_for_validation_various(mock_add_datatypes: MagicMock, rdfs_graph: Graph|None, datatypes: bool, context_url: str|None, caplog: pytest.LogCaptureFixture) -> None:
+def test_prepare_data_for_validation_various(mock_add_datatypes: MagicMock, rdfs_graph: Graph|None, datatypes: bool, context_dict: dict|None, caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level("INFO")
     service = ShaclValidationService()
     service._expand_with_rdfs = Mock()
     data_graph = Graph()
 
-    service.prepare_data_for_validation(data_graph, rdfs_graph=rdfs_graph, add_datatypes=datatypes, context_url=context_url)
+    service.prepare_data_for_validation(data_graph, rdfs_graph=rdfs_graph, add_datatypes=datatypes, context_data=context_dict)
     if rdfs_graph is not None:
         service._expand_with_rdfs.assert_called_once_with(data_graph, rdfs_graph)
         assert "Expanding data graph with RDFS semantics from provided ontology." in caplog.text
@@ -40,8 +40,8 @@ def test_prepare_data_for_validation_various(mock_add_datatypes: MagicMock, rdfs
         service._expand_with_rdfs.assert_not_called()
 
     if datatypes:
-        mock_add_datatypes.assert_called_once_with(data_graph, context_url)
-        context_info = context_url if context_url else "default context"
+        mock_add_datatypes.assert_called_once_with(data_graph, context_dict)
+        context_info = "custom context" if context_dict else "default context"
         assert f"Adding datatypes from context: {context_info}" in caplog.text
     else:
         mock_add_datatypes.assert_not_called()
@@ -55,7 +55,7 @@ def test_prepare_data_for_validation_nodata(mock_add_datatypes: MagicMock) -> No
     service._expand_with_rdfs = Mock()
 
     # Pylance ignored for testing wrong input type
-    service.prepare_data_for_validation(None, rdfs_graph=None, add_datatypes=True, context_url=None) # type: ignore
+    service.prepare_data_for_validation(None, rdfs_graph=None, add_datatypes=True, context_data=None) # type: ignore
 
     mock_add_datatypes.assert_not_called()
 
