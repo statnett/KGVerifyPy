@@ -1,0 +1,9 @@
+{
+    "data_files": [
+        "/home/christha/rdflib_dev/KGVerifyPy/Nordic44-HV_SSH.xml"
+    ],
+    "shacl_files": [
+        "/home/christha/rdflib_dev/KGVerifyPy/61970-600-2_SteadyStateHypothesis-AP-Con-Simple-SHACL.ttl"
+    ],
+    "last_used_directory": "/home/christha/rdflib_dev/KGVerifyPy"
+}

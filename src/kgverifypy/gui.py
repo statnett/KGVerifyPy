@@ -3,13 +3,14 @@
 import tkinter as tk
 from tkinter import filedialog, ttk
 from typing import Callable
-
+from pathlib import Path
 from rdflib import Graph
 from rdflib.namespace import SH
-from kgverifypy.file_handling import make_graphs_from, merge_trig_graphs, context_from_file
+from kgverifypy.file_handling import make_graphs_from, merge_trig_graphs, load_json, save_json
 from kgverifypy.validation_service import ShaclValidationService
 from kgverifypy.csv_utilites import collect_violations, write_violations_to_csv
 
+FILE_CONFIG_PATH = Path(__file__).parent / "file_config.json"
 DEFAULT_MAIN_GEOMETRY = "760x680"
 DEFAULT_MAIN_MIN_SIZE = (680, 560)
 DEFAULT_OUTPUT_GEOMETRY = "760x560"
@@ -52,6 +53,7 @@ class CIMShaclGUI:
 	"""GUI for selecting multiple files and displaying a run summary."""
 
 	def __init__(self) -> None:
+		self.file_config = load_json(FILE_CONFIG_PATH) if FILE_CONFIG_PATH.exists() else {}
 		self.root = tk.Tk()
 		self._configure_root_window()
 		self._configure_styles()
@@ -74,6 +76,8 @@ class CIMShaclGUI:
 		self.validation_service = ShaclValidationService()
 
 		self._build_ui()
+		self._restore_from_config()
+		self.load_files()
 		self.root.mainloop()
 
 	def _configure_root_window(self) -> None:
@@ -98,8 +102,8 @@ class CIMShaclGUI:
 		self.root.rowconfigure(0, weight=1)
 		frame.columnconfigure(0, weight=1)
 
-		self.data_var = tk.StringVar(value="No files selected")
-		self.shacl_var = tk.StringVar(value="No files selected")
+		self.data_var = tk.StringVar(value=self.file_config.get("data_files", "No files selected") if self.file_config else "No files selected")
+		self.shacl_var = tk.StringVar(value=self.file_config.get("shacl_files", "No files selected") if self.file_config else "No files selected")
 
 		row = 0
 		row = self._file_selection_section(frame, row)
@@ -120,6 +124,20 @@ class CIMShaclGUI:
 		row = self._shacl_output_section(frame, row)
 
 		ttk.Button(frame, text="Run", command=self.run).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+
+	def _restore_from_config(self) -> None:
+		if not self.file_config:
+			return
+		
+		data_files = self.file_config.get("data_files", [])
+		if data_files:
+			self.data_files = data_files
+			self.data_var.set(f"{len(self.data_files)} files selected")
+
+		shacl_files = self.file_config.get("shacl_files", [])
+		if shacl_files:
+			self.shacl_file = shacl_files[0]
+			self.shacl_var.set(self.shacl_file)
 
 	def _file_selection_section(self, frame: ttk.Frame, start_row: int) -> int:
 		row = start_row
@@ -215,39 +233,68 @@ class CIMShaclGUI:
 		return start_row + 1
 
 	def _select_files(self, title: str) -> list[str]:
-		files = filedialog.askopenfilenames(title=title)
+		initial_dir = self.file_config.get("last_used_directory", str(Path.home())) if self.file_config else str(Path.home())
+		files = filedialog.askopenfilenames(initialdir=initial_dir, title=title)
+		self.file_config["last_used_directory"] = str(Path(files[0]).parent) if files else initial_dir
+		save_json(self.file_config, FILE_CONFIG_PATH)
 		return list(files)
 
 	def select_data_files(self) -> None:
 		files = self._select_files("Select data files")
 		if files:
 			self.data_files = files
-			if self.data_format.get() == "trig":
-				self.data_graph = merge_trig_graphs(self.data_files)
-			else:
-				self.data_graph = make_graphs_from(self.data_files, format=self.data_format.get())
+			# if self.data_format.get() == "trig":
+			# 	self.data_graph = merge_trig_graphs(self.data_files)
+			# else:
+			# 	self.data_graph = make_graphs_from(self.data_files, format=self.data_format.get())
 			self.data_var.set(f"{len(self.data_files)} files selected")
+			self.file_config["data_files"] = self.data_files
+			save_json(self.file_config, FILE_CONFIG_PATH)
+			self.load_files()
 
 	def select_rdfs_files(self) -> None:
 		files = self._select_files("Select rdfs files")
 		if files:
 			self.rdfs_files = files
-			self.rdfs_graph = make_graphs_from(self.rdfs_files, format="xml")
+			# self.rdfs_graph = make_graphs_from(self.rdfs_files, format="xml")
 			self.rdfs_var.set(f"{len(self.rdfs_files)} files selected")
+			self.load_files()
 
 	def select_shacl_file(self) -> None:
-		file = filedialog.askopenfilename(title="Select shacl file")
+		initial_dir = self.file_config.get("last_used_directory", str(Path.home())) if self.file_config else str(Path.home())
+		file = filedialog.askopenfilename(initialdir=initial_dir, title="Select shacl file")
 		if file:
 			self.shacl_file = file
-			self.shacl_graph = make_graphs_from(self.shacl_file, format=self.shacl_format.get())
+			# self.shacl_graph = make_graphs_from(self.shacl_file, format=self.shacl_format.get())
 			self.shacl_var.set(file)
+			self.file_config["shacl_files"] = [self.shacl_file]
+			self.file_config["last_used_directory"] = str(Path(file).parent)
+			save_json(self.file_config, FILE_CONFIG_PATH)
+			self.load_files()
 
 	def select_datatype_file(self) -> None:
 		file = filedialog.askopenfilename(title="Select context file for datatype enrichment")
 		if file:
 			self.datatype_file = file
-			self.datatypes: dict = context_from_file(self.datatype_file)
+			# self.datatypes: dict = load_json(self.datatype_file)
 			self.datatype_file_var.set(file)
+			self.load_files()
+
+	def load_files(self) -> None:
+		if self.data_files:
+			if self.data_format.get() == "trig":
+				self.data_graph = merge_trig_graphs(self.data_files)
+			else:
+				self.data_graph = make_graphs_from(self.data_files, format=self.data_format.get())
+		
+		if self.rdfs_files:
+			self.rdfs_graph = make_graphs_from(self.rdfs_files, format="xml")
+
+		if self.shacl_file:
+			self.shacl_graph = make_graphs_from(self.shacl_file, format=self.shacl_format.get())
+
+		if self.datatype_file:
+			self.datatypes = load_json(self.datatype_file)
 
 	def run(self) -> None:
 		data_count = len(self.data_graph) if self.data_graph else 0

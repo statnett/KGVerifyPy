@@ -1,3 +1,4 @@
+import os
 from rdflib import Graph, Dataset
 from pathlib import Path
 from typing import Sequence, Union
@@ -51,18 +52,30 @@ def merge_trig_graphs(files: Union[str, Path, Sequence[Union[str, Path]]]) -> Gr
     return g
 
 
-def context_from_file(json_file_path: str) -> dict:
-    """Load a JSON-LD context from a file and return it as a dictionary.
+def load_json(json_file_path: str | Path) -> dict:
+    """Load data from a json file and return it as a dictionary.
     
     Parameters:
-        json_file_path (str): The path to the JSON file containing the context.
+        json_file_path (str|Path): The path to the JSON file.
     Returns:
-        dict: The JSON-LD context loaded from the file.
+        dict: The data loaded from the JSON file.
     """
-    with open(json_file_path, 'r', encoding='utf-8') as f:
-        context_data = json.load(f)
+    if os.path.exists(json_file_path) and os.path.isfile(json_file_path):
+        with open(json_file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return data
+    
+    return {}
 
-    return context_data
+def save_json(data: dict, json_file_path: str | Path) -> None:
+    """Save a dictionary as a JSON file.
+    
+    Parameters:
+        data (dict): The data to save as JSON.
+        json_file_path (str|Path): The path to the JSON file where the data should be saved.
+    """
+    with open(json_file_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=4)
 
 # Not used, but may be needed in the future if we want to do things that are done via a CIMProcessor.
 # def make_data_graph_from_cimxml_old(files: Union[str, Path, Sequence[Union[str, Path]]]) -> Graph:
