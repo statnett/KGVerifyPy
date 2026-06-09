@@ -8,7 +8,7 @@ from rdflib import Graph
 from rdflib.namespace import SH
 from kgverifypy.file_handling import make_graphs_from, merge_trig_graphs, load_json, save_json
 from kgverifypy.validation_service import ShaclValidationService
-from kgverifypy.csv_utilites import collect_violations, write_violations_to_csv
+from kgverifypy.csv_utilities import collect_violations, write_shacl_violations_to_csv
 from kgverifypy.data_handler import DataHandler
 
 FILE_CONFIG_PATH = Path(__file__).parent / "file_config.json"
@@ -349,7 +349,7 @@ class CIMShaclGUI:
 			if self.csv_report_var.get():
 				csv_result = collect_violations(result.results_graph)
 				csv_output_path = output_path.rsplit(".", 1)[0] + ".csv"
-				write_violations_to_csv(csv_result, csv_output_path)
+				write_shacl_violations_to_csv(csv_result, csv_output_path)
 				self._show_output_message(top, f"Validation report saved as CSV to: {csv_output_path}", padding=0)
 
 

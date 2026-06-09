@@ -25,11 +25,20 @@ class ConstraintViolation:
     message: str
 
 def extract_violations_from_graph(graph: Graph, subject: Node) -> ConstraintViolation:
+    """Extracts violation details from a SHACL result RDF graph and subject node.
+
+    Parameters:
+        graph (Graph): The RDF graph containing the SHACL validation results.
+        subject (Node): The subject node for which to extract violation details.
+    
+    Returns:
+        ConstraintViolation: A dataclass instance containing the extracted violation details.
+    """
     data = {}
     for key, value in PREDICATE_MAP.items():
         temp_list = list(graph.objects(subject, URIRef(value)))
         if len(temp_list) == 1:
-            data[key] = temp_list[0]
+            data[key] = str(temp_list[0])
         elif len(temp_list) == 0:
             data[key] = "N/A"
         else:
@@ -38,13 +47,30 @@ def extract_violations_from_graph(graph: Graph, subject: Node) -> ConstraintViol
     return ConstraintViolation(**data)
 
 def collect_violations(graph: Graph) -> list[ConstraintViolation]:
+    """Collect all violations from a SHACL result RDF graph.
+
+    Parameters:
+        graph (Graph): The RDF graph containing the SHACL validation results.
+    
+    Returns:
+        list[ConstraintViolation]: A list of dataclass instances containing the extracted violation details.
+    """
     subjects = list(graph.subjects(RDF.type, URIRef("http://www.w3.org/ns/shacl#ValidationResult")))
     return [extract_violations_from_graph(graph, subject) for subject in subjects]
 
 
-def write_violations_to_csv(violations: list[ConstraintViolation], output_file: Path | str):
-    if isinstance(output_file, str):
-        output_file = Path(output_file)
+def write_shacl_violations_to_csv(violations: list[ConstraintViolation], output_file: Path | str) -> None:
+    """Write a list of ConstraintViolation instances to a CSV file.
+
+    Using semicolon as the delimiter and UTF-8 encoding. 
+
+    Parameters:
+        violations (list[ConstraintViolation]): The list of violations to write.
+        output_file (Path | str): The path to the output CSV file.    
+    """
+    if not violations:
+        return
+    
     with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=asdict(violations[0]).keys(), delimiter=';', quoting=csv.QUOTE_MINIMAL)
         writer.writeheader()
@@ -60,4 +86,4 @@ if __name__ == "__main__":
     violations = collect_violations(g)
     print(f"Collected {len(violations)} violations.")
     output_csv = Path.cwd() / "violations_output.csv"
-    write_violations_to_csv(violations, output_csv)
+    write_shacl_violations_to_csv(violations, output_csv)
