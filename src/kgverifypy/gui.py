@@ -9,6 +9,7 @@ from rdflib.namespace import SH
 from kgverifypy.file_handling import make_graphs_from, merge_trig_graphs, load_json, save_json
 from kgverifypy.validation_service import ShaclValidationService
 from kgverifypy.csv_utilites import collect_violations, write_violations_to_csv
+from kgverifypy.data_handler import DataHandler
 
 FILE_CONFIG_PATH = Path(__file__).parent / "file_config.json"
 DEFAULT_MAIN_GEOMETRY = "760x680"
@@ -53,15 +54,12 @@ class CIMShaclGUI:
 	"""GUI for selecting multiple files and displaying a run summary."""
 
 	def __init__(self) -> None:
+		self.datahandler = DataHandler()
 		self.file_config = load_json(FILE_CONFIG_PATH) if FILE_CONFIG_PATH.exists() else {}
 		self.root = tk.Tk()
 		self._configure_root_window()
 		self._configure_styles()
 
-		self.data_files: list[str] = []
-		self.rdfs_files: list[str] = []
-		self.shacl_file: str = ""
-		self.datatype_file: str = ""
 		self.shacl_format = tk.StringVar(value="ttl")
 		self.data_format = tk.StringVar(value="cimxml")
 		self.validation_output_path = tk.StringVar(value=DEFAULT_VALIDATION_OUTPUT)
@@ -70,14 +68,11 @@ class CIMShaclGUI:
 		self.custom_url_var = tk.StringVar()
 		self.csv_report_var = tk.BooleanVar(value=False)
 
-		self.rdfs_graph: Graph | None = None
-		self.data_graph: Graph | None = None
-		self.shacl_graph: Graph | None = None
 		self.validation_service = ShaclValidationService()
 
 		self._build_ui()
 		self._restore_from_config()
-		self.load_files()
+		self.datahandler.load_files()
 		self.root.mainloop()
 
 	def _configure_root_window(self) -> None:
@@ -129,15 +124,26 @@ class CIMShaclGUI:
 		if not self.file_config:
 			return
 		
-		data_files = self.file_config.get("data_files", [])
-		if data_files:
-			self.data_files = data_files
-			self.data_var.set(f"{len(self.data_files)} files selected")
+		data_cfg = self.file_config.get("data", {})
+		data_format = data_cfg.get("format", "cimxml")
+		self.data_format.set(data_format)
+		self.datahandler.data_format = data_format
 
-		shacl_files = self.file_config.get("shacl_files", [])
+		data_files = data_cfg.get("files", [])
+		if data_files:
+			self.datahandler.data_files = data_files
+			self.data_var.set(f"{len(self.datahandler.data_files)} files selected")
+
+		shacl_cfg = self.file_config.get("shacl", {})
+		shacl_format = shacl_cfg.get("format", "ttl")
+		self.shacl_format.set(shacl_format)
+		self.datahandler.shacl_format = shacl_format
+
+		shacl_files = shacl_cfg.get("files", [])
 		if shacl_files:
-			self.shacl_file = shacl_files[0]
-			self.shacl_var.set(self.shacl_file)
+			self.datahandler.shacl_file = shacl_files[0]
+			self.shacl_var.set(self.datahandler.shacl_file)
+
 
 	def _file_selection_section(self, frame: ttk.Frame, start_row: int) -> int:
 		row = start_row
@@ -177,7 +183,6 @@ class CIMShaclGUI:
 
 		self.rdfs_var = tk.StringVar(value="No files selected")
 
-		# ttk.Label(frame, text="rdfs files:").grid(row=row, column=0, sticky="w", pady=(10, 6))
 		row = self._add_file_picker_row(frame, row, self.rdfs_var, self.select_rdfs_files)
 		row += 1
 		return row
@@ -194,7 +199,6 @@ class CIMShaclGUI:
 		ttk.Label(frame, text="Custom context file:").grid(row=row, column=0, sticky="w", pady=(10, 6))
 		row += 1
 		row = self._add_file_picker_row(frame, row, self.datatype_file_var, self.select_datatype_file)
-		# ttk.Entry(frame, textvariable=self.custom_url_var).grid(row=row, column=0, columnspan=2, sticky="ew")		
 		row += 1
 
 		return row
@@ -232,74 +236,52 @@ class CIMShaclGUI:
 		ttk.Button(frame, text="Browse", command=command).grid(row=start_row, column=1, sticky="ew")
 		return start_row + 1
 
-	def _select_files(self, title: str) -> list[str]:
-		initial_dir = self.file_config.get("last_used_directory", str(Path.home())) if self.file_config else str(Path.home())
-		files = filedialog.askopenfilenames(initialdir=initial_dir, title=title)
-		self.file_config["last_used_directory"] = str(Path(files[0]).parent) if files else initial_dir
+	def _save_config_info(self, filelist: list[str], dataset: str, format: str) -> None:
+		self.file_config[dataset]["format"] = format
+		self.file_config[dataset]["files"] = filelist
+		self.file_config["last_used_directory"] = str(Path(filelist[0]).parent)
 		save_json(self.file_config, FILE_CONFIG_PATH)
-		return list(files)
 
 	def select_data_files(self) -> None:
-		files = self._select_files("Select data files")
+		initial_dir = self.file_config.get("last_used_directory", str(Path.home())) if self.file_config else str(Path.home())
+		files = filedialog.askopenfilenames(initialdir=initial_dir, title="Select data files")
 		if files:
-			self.data_files = files
-			# if self.data_format.get() == "trig":
-			# 	self.data_graph = merge_trig_graphs(self.data_files)
-			# else:
-			# 	self.data_graph = make_graphs_from(self.data_files, format=self.data_format.get())
-			self.data_var.set(f"{len(self.data_files)} files selected")
-			self.file_config["data_files"] = self.data_files
-			save_json(self.file_config, FILE_CONFIG_PATH)
-			self.load_files()
+			filelist = list(files)
+			self.datahandler.data_files = filelist
+			self.data_var.set(f"{len(self.datahandler.data_files)} files selected")
+			self.datahandler.data_format = self.data_format.get()
+			self._save_config_info(filelist, "data", self.data_format.get())
+			self.datahandler.load_files()
 
 	def select_rdfs_files(self) -> None:
-		files = self._select_files("Select rdfs files")
-		if files:
-			self.rdfs_files = files
-			# self.rdfs_graph = make_graphs_from(self.rdfs_files, format="xml")
-			self.rdfs_var.set(f"{len(self.rdfs_files)} files selected")
-			self.load_files()
+		files = filedialog.askopenfilenames(title="Select RDFS files")
+		if files:	# RDFS files are optional so last filepaths are not recorded.
+			filelist = list(files)
+			self.datahandler.rdfs_files = filelist
+			self.rdfs_var.set(f"{len(self.datahandler.rdfs_files)} files selected")
+			self.datahandler.load_files()
 
 	def select_shacl_file(self) -> None:
 		initial_dir = self.file_config.get("last_used_directory", str(Path.home())) if self.file_config else str(Path.home())
 		file = filedialog.askopenfilename(initialdir=initial_dir, title="Select shacl file")
 		if file:
-			self.shacl_file = file
-			# self.shacl_graph = make_graphs_from(self.shacl_file, format=self.shacl_format.get())
+			self.datahandler.shacl_file = file
 			self.shacl_var.set(file)
-			self.file_config["shacl_files"] = [self.shacl_file]
-			self.file_config["last_used_directory"] = str(Path(file).parent)
-			save_json(self.file_config, FILE_CONFIG_PATH)
-			self.load_files()
+			self.datahandler.shacl_format = self.shacl_format.get()
+			self._save_config_info([file], "shacl", self.shacl_format.get())
+			self.datahandler.load_files()
 
 	def select_datatype_file(self) -> None:
 		file = filedialog.askopenfilename(title="Select context file for datatype enrichment")
 		if file:
-			self.datatype_file = file
-			# self.datatypes: dict = load_json(self.datatype_file)
+			self.datahandler.datatype_file = file
 			self.datatype_file_var.set(file)
-			self.load_files()
-
-	def load_files(self) -> None:
-		if self.data_files:
-			if self.data_format.get() == "trig":
-				self.data_graph = merge_trig_graphs(self.data_files)
-			else:
-				self.data_graph = make_graphs_from(self.data_files, format=self.data_format.get())
-		
-		if self.rdfs_files:
-			self.rdfs_graph = make_graphs_from(self.rdfs_files, format="xml")
-
-		if self.shacl_file:
-			self.shacl_graph = make_graphs_from(self.shacl_file, format=self.shacl_format.get())
-
-		if self.datatype_file:
-			self.datatypes = load_json(self.datatype_file)
+			self.datahandler.load_files()
 
 	def run(self) -> None:
-		data_count = len(self.data_graph) if self.data_graph else 0
-		rdfs_count = len(self.rdfs_graph) if self.rdfs_graph else 0
-		shacl_count = len(self.shacl_graph) if self.shacl_graph else 0
+		data_count = len(self.datahandler.data_graph) if self.datahandler.data_graph else 0
+		rdfs_count = len(self.datahandler.rdfs_graph) if self.datahandler.rdfs_graph else 0
+		shacl_count = len(self.datahandler.shacl_graph) if self.datahandler.shacl_graph else 0
 
 		top = tk.Toplevel(self.root)
 		top.title("Run output")
@@ -310,7 +292,6 @@ class CIMShaclGUI:
 			f"Data Graph length: {data_count}\n"
 			f"RDFS Graph length: {rdfs_count}\n"
 			f"SHACL Graph length: {shacl_count}\n\n"
-			# f"Run: {data_count + rdfs_count} triples with {shacl_count} shapes"
 		)
 		try:
 			self._prepare_data_graph()
@@ -324,14 +305,14 @@ class CIMShaclGUI:
 		ttk.Label(top, text=message, padding=padding, font=OUTPUT_FONT).pack(fill="both", expand=True)
 
 	def _prepare_data_graph(self) -> None:
-		if self.data_graph is None:
+		if self.datahandler.data_graph is None:
 			return
 		
-		context_data = self.datatypes if self.datatype_file else None
-		self.validation_service.prepare_data_for_validation(self.data_graph, self.rdfs_graph, add_datatypes=self.add_datatypes_var.get(), context_data=context_data)
+		context_data = self.datahandler.datatypes if self.datahandler.datatype_file else None
+		self.validation_service.prepare_data_for_validation(self.datahandler.data_graph, self.datahandler.rdfs_graph, add_datatypes=self.add_datatypes_var.get(), context_data=context_data)
 			
 	def _report_focus_nodes(self, top: tk.Toplevel) -> None:
-		summary = self.validation_service.summarize_focus_nodes(self.data_graph, self.shacl_graph)
+		summary = self.validation_service.summarize_focus_nodes(self.datahandler.data_graph, self.datahandler.shacl_graph)
 		if summary is None:
 			return
 
@@ -342,12 +323,12 @@ class CIMShaclGUI:
 		self._show_output_message(top, focus_message)
 
 	def _run_shacl_validation(self, top: tk.Toplevel) -> None:
-		result = self.validation_service.validate_graphs(self.data_graph, self.shacl_graph, self.rdfs_graph)
+		result = self.validation_service.validate_graphs(self.datahandler.data_graph, self.datahandler.shacl_graph, self.datahandler.rdfs_graph)
 		if result is None:
 			self._show_output_message(top, "Data graph or SHACL graph not loaded.")
 			return
 
-		graph_count = len(self.data_graph) if self.data_graph else 0
+		graph_count = len(self.datahandler.data_graph) if self.datahandler.data_graph else 0
 		self._show_output_message(top, f"SHACL validation performed on {graph_count} triples.")
 		self._show_output_message(top, f"Conforms: {result.conforms}", padding=2)
 
@@ -359,7 +340,6 @@ class CIMShaclGUI:
 			self._show_output_message(top, message, padding=4)
 
 		if result.results_graph is not None and SH.result in result.results_graph.predicates():	# If there are any results to report save it to file.
-		# if result.conforms == False:
 			output_path = self.validation_output_path.get().strip() or DEFAULT_VALIDATION_OUTPUT
 			output_format = self.validation_output_format.get()
 			saved = self.validation_service.serialize_results(result.results_graph, output_path, output_format)
@@ -371,6 +351,8 @@ class CIMShaclGUI:
 				csv_output_path = output_path.rsplit(".", 1)[0] + ".csv"
 				write_violations_to_csv(csv_result, csv_output_path)
 				self._show_output_message(top, f"Validation report saved as CSV to: {csv_output_path}", padding=0)
+
+
 
 def main() -> None:
 	CIMShaclGUI()

@@ -1,9 +1,16 @@
 {
-    "data_files": [
-        "/home/christha/rdflib_dev/KGVerifyPy/Nordic44-HV_SSH.xml"
-    ],
-    "shacl_files": [
-        "/home/christha/rdflib_dev/KGVerifyPy/61970-600-2_SteadyStateHypothesis-AP-Con-Simple-SHACL.ttl"
-    ],
-    "last_used_directory": "/home/christha/rdflib_dev/KGVerifyPy"
+    "data": {
+        "files": [
+            "/home/christha/Nordic44/instances/Grid/cimxml/Nordic44-HV_EQ.xml",
+            "/home/christha/Nordic44/instances/Grid/cimxml/Nordic44-HV_SSH.xml"
+        ],
+        "format": "cimxml"
+    },
+    "shacl": {
+        "files": [
+            "/home/christha/application-profiles-library/CGMES/CurrentRelease/SHACL/TTL/61970-600-2_SteadyStateHypothesis-AP-Con-Simple-SHACL.ttl"
+        ],
+        "format": "ttl"
+    },
+    "last_used_directory": "/home/christha/application-profiles-library/CGMES/CurrentRelease/RDFS"
 }
