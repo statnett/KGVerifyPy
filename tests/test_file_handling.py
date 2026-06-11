@@ -11,7 +11,8 @@ from src.kgverifypy.file_handling import make_graphs_from, merge_trig_graphs
     [
         pytest.param(["file1.owl", "file2.owl"], "xml", id="Multiple files with default format"),
         pytest.param("file1.ttl", "ttl", id="Single file with specified format"),
-        pytest.param([], "xml", id="Empty file list")
+        pytest.param([], "xml", id="Empty file list"),
+        pytest.param(["", "file2.owl"], "xml", id="One file is empty string"),
     ]
 )
 @patch.object(Graph, "parse")

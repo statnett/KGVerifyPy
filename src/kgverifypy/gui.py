@@ -1,15 +1,16 @@
 """Simple Tkinter GUI for selecting CIM/SHACL files and showing output."""
 
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog, ttk, messagebox, scrolledtext
+import threading
 from typing import Callable
 from pathlib import Path
-from rdflib import Graph
 from rdflib.namespace import SH
-from kgverifypy.file_handling import make_graphs_from, merge_trig_graphs, load_json, save_json
+from kgverifypy.file_handling import load_json, save_json
 from kgverifypy.validation_service import ShaclValidationService
 from kgverifypy.csv_utilities import collect_violations, write_shacl_violations_to_csv
 from kgverifypy.data_handler import DataHandler
+from kgverifypy.namespaces import compare_namespaces
 
 FILE_CONFIG_PATH = Path(__file__).parent / "file_config.json"
 DEFAULT_MAIN_GEOMETRY = "760x680"
@@ -116,6 +117,9 @@ class CIMShaclGUI:
 		self._datatype_section(datatype_section.content, 0)
 		row += 1
 		
+		ttk.Button(frame, text="Check namespaces", command=self.show_namespace_report).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+		row += 1
+
 		row = self._shacl_output_section(frame, row)
 
 		ttk.Button(frame, text="Run", command=self.run).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(14, 0))
@@ -202,6 +206,32 @@ class CIMShaclGUI:
 		row += 1
 
 		return row
+	
+	def show_namespace_report(self):
+		graphs = {
+			"data": self.datahandler.data_graph,
+			"shacl": self.datahandler.shacl_graph
+		}
+
+		if self.datahandler.rdfs_graph is not None:
+			graphs["rdfs"] = self.datahandler.rdfs_graph
+
+		report = compare_namespaces(graphs)
+
+		if all_namespaces_match(report):
+			messagebox.showinfo("Namespace Check", "✅ All namespaces match.")
+			return
+
+		matrix_text = format_namespace_matrix(report, list(graphs.keys()))
+
+		# Popup window with scroll
+		win = tk.Toplevel()
+		win.title("Namespace Differences")
+
+		text_area = scrolledtext.ScrolledText(win, wrap=tk.WORD, width=150, height=30)
+		text_area.insert(tk.END, matrix_text)
+		text_area.config(state=tk.DISABLED)
+		text_area.pack(padx=10, pady=10)
 
 	def _shacl_output_section(self, frame: ttk.Frame, start_row: int) -> int:
 		row = start_row
@@ -293,11 +323,14 @@ class CIMShaclGUI:
 			f"RDFS Graph length: {rdfs_count}\n"
 			f"SHACL Graph length: {shacl_count}\n\n"
 		)
+
+		progress = ttk.Progressbar(top, mode="indeterminate")
+		progress.pack(fill="x", padx=10, pady=(0, 10))
 		try:
 			self._prepare_data_graph()
 			self._show_output_message(top, message)
 			self._report_focus_nodes(top)
-			self._run_shacl_validation(top)
+			self._run_shacl_validation_async(top, progress)
 		except Exception as e:
 			self._show_output_message(top, f"An error occurred:\n {str(e)}")
 
@@ -322,6 +355,64 @@ class CIMShaclGUI:
 		)
 		self._show_output_message(top, focus_message)
 
+	def _run_shacl_validation_async(self, top, progress):
+		progress.start()
+
+		def worker():
+			try:
+				result = self.validation_service.validate_graphs(
+					self.datahandler.data_graph,
+					self.datahandler.shacl_graph,
+					self.datahandler.rdfs_graph
+				)
+
+				# Pass result back to UI thread
+				top.after(0, lambda: self._on_validation_done(top, progress, result))
+
+			except Exception as e:
+				top.after(0, lambda: self._on_validation_error(top, progress, e))
+
+		threading.Thread(target=worker, daemon=True).start()
+
+
+	def _on_validation_done(self, top, progress, result):
+		progress.stop()
+		progress.destroy()
+
+		if result is None:
+			self._show_output_message(top, "Data graph or SHACL graph not loaded.")
+			return
+
+		graph_count = len(self.datahandler.data_graph) if self.datahandler.data_graph else 0
+
+		self._show_output_message(top, f"SHACL validation performed on {graph_count} triples.")
+		self._show_output_message(top, f"Conforms: {result.conforms}")
+
+		if result.summary_validation_results:
+			message = "Summary of validation results (error type and count):\n"
+			for error_type, count in result.summary_validation_results:
+				message += f"{error_type}: {count}\n"
+			self._show_output_message(top, message)
+
+		if result.results_graph is not None and SH.result in result.results_graph.predicates():
+			output_path = self.validation_output_path.get().strip() or DEFAULT_VALIDATION_OUTPUT
+			output_format = self.validation_output_format.get()
+
+			saved = self.validation_service.serialize_results(result.results_graph, output_path, output_format)
+			if saved:
+				self._show_output_message(top, f"Validation report saved to: {output_path}")
+
+			if self.csv_report_var.get():
+				csv_result = collect_violations(result.results_graph)
+				csv_output_path = output_path.rsplit(".", 1)[0] + ".csv"
+				write_shacl_violations_to_csv(csv_result, csv_output_path)
+				self._show_output_message(top, f"Validation report saved as CSV to: {csv_output_path}")
+
+	def _on_validation_error(self, top, progress, error):
+		progress.stop()
+		progress.destroy()
+		self._show_output_message(top, f"An error occurred:\n{str(error)}")
+		
 	def _run_shacl_validation(self, top: tk.Toplevel) -> None:
 		result = self.validation_service.validate_graphs(self.datahandler.data_graph, self.datahandler.shacl_graph, self.datahandler.rdfs_graph)
 		if result is None:
@@ -352,6 +443,38 @@ class CIMShaclGUI:
 				write_shacl_violations_to_csv(csv_result, csv_output_path)
 				self._show_output_message(top, f"Validation report saved as CSV to: {csv_output_path}", padding=0)
 
+
+
+def all_namespaces_match(report):
+    return all(len(row["missing"]) == 0 for row in report)
+
+
+def format_namespace_matrix(report, graph_names):
+	max_uri_len = max(len(row["uri"]) for row in report) if report else 0
+	col_width = 10
+
+	lines = []
+
+	header = "Namespace".ljust(max_uri_len) + " | " + " | ".join(name.upper().center(col_width) for name in graph_names)
+	lines.append(header)
+	lines.append("-" * len(header))
+
+	for row in report:
+		if row["missing"]:
+			uri_part = row["uri"].ljust(max_uri_len)
+
+			cols = []
+			for name in graph_names:
+				prefix = row["presence"].get(name)
+				if prefix:
+					cols.append(f"✔ {prefix}".center(col_width))
+				else:
+					cols.append("✘".center(col_width))
+
+			line = uri_part + " | " + " | ".join(cols)
+			lines.append(line)	
+
+	return "\n".join(lines)
 
 
 def main() -> None:
