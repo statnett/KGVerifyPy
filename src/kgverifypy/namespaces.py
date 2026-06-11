@@ -31,7 +31,15 @@ def align_cgmes_namespaces(graph: Graph, context: dict) -> None:
         context["@context"]["eu"] = CGMES_EU
     
 
-def _get_ns_map(graph):
+def _get_ns_map(graph: Graph) -> dict[str, str]:
+    """Helper function to get a mapping of namespace URIs to prefixes from an RDFLib Graph.
+    
+    Parameters:
+        graph (Graph): The RDFLib Graph from which to extract namespaces.
+
+    Returns:
+        dict: A dictionary mapping namespace URIs (as strings) to their prefixes.
+    """
     return {str(ns): prefix for prefix, ns in graph.namespace_manager.namespaces()}
 
 
