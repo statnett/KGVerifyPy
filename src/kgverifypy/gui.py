@@ -3,7 +3,7 @@
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox, scrolledtext
 import threading
-from typing import Callable
+from typing import Callable, Optional
 from pathlib import Path
 from rdflib.namespace import SH
 from kgverifypy.file_handling import load_json, save_json
@@ -13,22 +13,23 @@ from kgverifypy.data_handler import DataHandler
 from kgverifypy.namespaces import compare_namespaces
 
 FILE_CONFIG_PATH = Path(__file__).parent / "file_config.json"
-DEFAULT_MAIN_GEOMETRY = "760x680"
-DEFAULT_MAIN_MIN_SIZE = (680, 560)
+DEFAULT_MAIN_GEOMETRY = "760x700"
+DEFAULT_MAIN_MIN_SIZE = (680, 600)
 DEFAULT_OUTPUT_GEOMETRY = "760x560"
 DEFAULT_OUTPUT_MIN_SIZE = (680, 420)
 DEFAULT_VALIDATION_OUTPUT = "../validation_results.json"
-UI_FONT = ("TkDefaultFont", 12)
-OUTPUT_FONT = ("TkDefaultFont", 13)
-
+UI_FONT = ("TkDefaultFont", 14)	# 12
+OUTPUT_FONT = ("TkDefaultFont", 16) # 13
 
 
 class CollapsibleSection(ttk.Frame):
-	def __init__(self, parent, title="Section"):
+	def __init__(self, parent: ttk.Frame, title: str = "Section") -> None:
 		super().__init__(parent)
 
 		self.title = title
 		self.open = False
+		self.style = ttk.Style(self)
+		self.style.configure("Toolbutton", font=UI_FONT)
 
 		self.header_btn = ttk.Button(
 			self,
@@ -41,7 +42,7 @@ class CollapsibleSection(ttk.Frame):
 		self.content = ttk.Frame(self)
 		self.content.columnconfigure(0, weight=1)
 
-	def toggle(self):
+	def toggle(self) -> None:
 		self.open = not self.open
 
 		if self.open:
@@ -89,6 +90,7 @@ class CIMShaclGUI:
 		self.style.configure("TRadiobutton", font=UI_FONT)
 		self.style.configure("TEntry", font=UI_FONT)
 		self.style.configure("TCheckbutton", font=UI_FONT)
+		self.style.configure("scrolltext", font=UI_FONT)
 
 	def _build_ui(self) -> None:
 		frame = ttk.Frame(self.root, padding=12)
@@ -105,8 +107,8 @@ class CIMShaclGUI:
 		row = self._file_selection_section(frame, row)
 		row += 1
 		
-		# For adding rdfs files
-		rdfs_section = CollapsibleSection(frame, title="Add rdfs files")
+		# For adding RDFS files
+		rdfs_section = CollapsibleSection(frame, title="Add RDFS files")
 		rdfs_section.grid(row=row, column=0, sticky="ew", pady=(20, 10))
 		self.rdfs_section(rdfs_section.content, 0)
 		row += 1
@@ -117,12 +119,12 @@ class CIMShaclGUI:
 		self._datatype_section(datatype_section.content, 0)
 		row += 1
 		
-		ttk.Button(frame, text="Check namespaces", command=self.show_namespace_report).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+		ttk.Button(frame, text="Check namespaces", command=self.show_namespace_report).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(5, 15))
 		row += 1
 
 		row = self._shacl_output_section(frame, row)
 
-		ttk.Button(frame, text="Run", command=self.run).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+		ttk.Button(frame, text="Run SHACL validation", command=self.run).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(14, 0))
 
 	def _restore_from_config(self) -> None:
 		if not self.file_config:
@@ -133,27 +135,16 @@ class CIMShaclGUI:
 		self.data_format.set(data_format)
 		self.datahandler.data_format = data_format
 
-		data_files = data_cfg.get("files", [])
-		if data_files:
-			self.datahandler.data_files = data_files
-			self.data_var.set(f"{len(self.datahandler.data_files)} files selected")
-
 		shacl_cfg = self.file_config.get("shacl", {})
 		shacl_format = shacl_cfg.get("format", "ttl")
 		self.shacl_format.set(shacl_format)
 		self.datahandler.shacl_format = shacl_format
 
-		shacl_files = shacl_cfg.get("files", [])
-		if shacl_files:
-			self.datahandler.shacl_file = shacl_files[0]
-			self.shacl_var.set(self.datahandler.shacl_file)
-
-
 	def _file_selection_section(self, frame: ttk.Frame, start_row: int) -> int:
 		row = start_row
 
 		# Data files
-		ttk.Label(frame, text="data files:").grid(row=row, column=0, sticky="w", pady=(10, 6))
+		ttk.Label(frame, text="Data files:").grid(row=row, column=0, sticky="w", pady=(10, 6))
 		row += 1
 		
 		data_format_frame = ttk.Frame(frame)
@@ -168,7 +159,7 @@ class CIMShaclGUI:
 		row = self._add_file_picker_row(frame, row, self.data_var, self.select_data_files)
 
 		# SHACL files
-		ttk.Label(frame, text="shacl files:").grid(row=row, column=0, sticky="w", pady=(10, 6))
+		ttk.Label(frame, text="SHACL files:").grid(row=row, column=0, sticky="w", pady=(10, 6))
 		row += 1
 
 		shacl_format_frame = ttk.Frame(frame)
@@ -228,7 +219,7 @@ class CIMShaclGUI:
 		win = tk.Toplevel()
 		win.title("Namespace Differences")
 
-		text_area = scrolledtext.ScrolledText(win, wrap=tk.WORD, width=150, height=30)
+		text_area = scrolledtext.ScrolledText(win, wrap=tk.WORD, width=110, height=30, font=("Courier", 20))
 		text_area.insert(tk.END, matrix_text)
 		text_area.config(state=tk.DISABLED)
 		text_area.pack(padx=10, pady=10)
@@ -246,7 +237,7 @@ class CIMShaclGUI:
 		ttk.Radiobutton(validation_format_frame, text="RDF", variable=self.validation_output_format, value="xml").pack(side="left")
 		row += 1
 
-		ttk.Entry(frame, textvariable=self.validation_output_path).grid(row=row, column=0, columnspan=2, sticky="ew")
+		ttk.Entry(frame, textvariable=self.validation_output_path).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(6, 6))
 		row += 1
 
 		check = ttk.Checkbutton(frame, text="CSV report", variable=self.csv_report_var)
@@ -266,69 +257,68 @@ class CIMShaclGUI:
 		ttk.Button(frame, text="Browse", command=command).grid(row=start_row, column=1, sticky="ew")
 		return start_row + 1
 
-	def _save_config_info(self, filelist: list[str], dataset: str, format: str) -> None:
-		self.file_config[dataset]["format"] = format
-		self.file_config[dataset]["files"] = filelist
-		self.file_config["last_used_directory"] = str(Path(filelist[0]).parent)
+	def _save_config_info(self, filestr: str, dataset: str, format: Optional[str] = None) -> None:
+		if format:
+			self.file_config[dataset]["format"] = format
+		self.file_config[dataset]["last_directory"] = str(Path(filestr).parent)
 		save_json(self.file_config, FILE_CONFIG_PATH)
 
+	def load_dir_from_config(self, dataset: str) -> str:
+		if self.file_config and dataset in self.file_config:
+			return self.file_config[dataset].get("last_directory", str(Path.home()))
+		return str(Path.home())
+	
 	def select_data_files(self) -> None:
-		initial_dir = self.file_config.get("last_used_directory", str(Path.home())) if self.file_config else str(Path.home())
+		initial_dir = self.load_dir_from_config("data")
 		files = filedialog.askopenfilenames(initialdir=initial_dir, title="Select data files")
 		if files:
 			filelist = list(files)
 			self.datahandler.data_files = filelist
 			self.data_var.set(f"{len(self.datahandler.data_files)} files selected")
 			self.datahandler.data_format = self.data_format.get()
-			self._save_config_info(filelist, "data", self.data_format.get())
+			self._save_config_info(filelist[0], "data", self.data_format.get())
 			self.datahandler.load_files()
 
 	def select_rdfs_files(self) -> None:
-		files = filedialog.askopenfilenames(title="Select RDFS files")
+		initial_dir = self.load_dir_from_config("rdfs")
+		files = filedialog.askopenfilenames(initialdir=initial_dir, title="Select RDFS files")
 		if files:	# RDFS files are optional so last filepaths are not recorded.
 			filelist = list(files)
 			self.datahandler.rdfs_files = filelist
 			self.rdfs_var.set(f"{len(self.datahandler.rdfs_files)} files selected")
+			self._save_config_info(filelist[0], "rdfs")
 			self.datahandler.load_files()
 
 	def select_shacl_file(self) -> None:
-		initial_dir = self.file_config.get("last_used_directory", str(Path.home())) if self.file_config else str(Path.home())
+		initial_dir = self.load_dir_from_config("shacl")
 		file = filedialog.askopenfilename(initialdir=initial_dir, title="Select shacl file")
 		if file:
 			self.datahandler.shacl_file = file
 			self.shacl_var.set(file)
 			self.datahandler.shacl_format = self.shacl_format.get()
-			self._save_config_info([file], "shacl", self.shacl_format.get())
+			self._save_config_info(file, "shacl", self.shacl_format.get())
 			self.datahandler.load_files()
 
 	def select_datatype_file(self) -> None:
-		file = filedialog.askopenfilename(title="Select context file for datatype enrichment")
+		initial_dir = self.load_dir_from_config("datatypes")
+		file = filedialog.askopenfilename(initialdir=initial_dir, title="Select context file for datatype enrichment")
 		if file:
 			self.datahandler.datatype_file = file
 			self.datatype_file_var.set(file)
+			self._save_config_info(file, "datatypes")
 			self.datahandler.load_files()
 
 	def run(self) -> None:
-		data_count = len(self.datahandler.data_graph) if self.datahandler.data_graph else 0
-		rdfs_count = len(self.datahandler.rdfs_graph) if self.datahandler.rdfs_graph else 0
-		shacl_count = len(self.datahandler.shacl_graph) if self.datahandler.shacl_graph else 0
-
 		top = tk.Toplevel(self.root)
 		top.title("Run output")
 		top.geometry(DEFAULT_OUTPUT_GEOMETRY)
 		top.minsize(*DEFAULT_OUTPUT_MIN_SIZE)
 
-		message = (
-			f"Data Graph length: {data_count}\n"
-			f"RDFS Graph length: {rdfs_count}\n"
-			f"SHACL Graph length: {shacl_count}\n\n"
-		)
-
 		progress = ttk.Progressbar(top, mode="indeterminate")
 		progress.pack(fill="x", padx=10, pady=(0, 10))
 		try:
+			self._show_output_message(top, "Running SHACL validation...\n")
 			self._prepare_data_graph()
-			self._show_output_message(top, message)
 			self._report_focus_nodes(top)
 			self._run_shacl_validation_async(top, progress)
 		except Exception as e:
@@ -443,6 +433,17 @@ class CIMShaclGUI:
 				write_shacl_violations_to_csv(csv_result, csv_output_path)
 				self._show_output_message(top, f"Validation report saved as CSV to: {csv_output_path}", padding=0)
 
+	def _graph_counts_for_debugging(self, top: tk.Toplevel) -> None:
+		data_count = len(self.datahandler.data_graph) if self.datahandler.data_graph else 0
+		rdfs_count = len(self.datahandler.rdfs_graph) if self.datahandler.rdfs_graph else 0
+		shacl_count = len(self.datahandler.shacl_graph) if self.datahandler.shacl_graph else 0
+
+		message = (
+			f"Data Graph length: {data_count}\n"
+			f"RDFS Graph length: {rdfs_count}\n"
+			f"SHACL Graph length: {shacl_count}\n\n"
+		)
+		self._show_output_message(top, message)
 
 
 def all_namespaces_match(report: list[dict]) -> bool:
