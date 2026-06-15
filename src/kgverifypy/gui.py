@@ -2,6 +2,7 @@
 
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox, scrolledtext
+import time
 import threading
 from typing import Callable, Optional
 from pathlib import Path
@@ -51,6 +52,56 @@ class CollapsibleSection(ttk.Frame):
 		else:
 			self.header_btn.config(text=f"[+] {self.title}")
 			self.content.forget()
+
+
+class LoadingDialog:
+	def __init__(self, parent):
+		self.top = tk.Toplevel(parent)
+		self.top.title("Loading files...")
+		self.top.geometry("300x120")
+		self.top.transient(parent)
+		self.top.grab_set()
+
+		ttk.Label(self.top, text="Large files may take a while.").pack(pady=5)
+
+		self.progress = ttk.Progressbar(
+			self.top,
+			mode="indeterminate",
+			length=250
+		)
+		self.progress.pack(pady=5)
+		self.progress.start(10)
+
+		# ✅ Timer label
+		self.start_time = time.time()
+		self.time_label = ttk.Label(self.top, text="Elapsed: 0.0 s")
+		self.time_label.pack(pady=5)
+
+		self._update_timer()
+
+	def _update_timer(self):
+		elapsed = time.time() - self.start_time
+		if elapsed < 60:
+			self.time_label.config(text=f"Elapsed: {elapsed:.1f} s")
+		elif elapsed < 3600:
+			mins = int(elapsed // 60)
+			self.time_label.config(text=f"Elapsed: {mins} min {int(elapsed % 60)} s")
+		else:			
+			hours = int(elapsed // 3600)
+			mins = int((elapsed % 3600) // 60)
+			self.time_label.config(text=f"Elapsed: {hours} h {mins} min")
+
+		# schedule next update
+		self._job = self.top.after(100, self._update_timer)
+
+	def close(self):
+		self.progress.stop()
+
+		# stop timer updates
+		if hasattr(self, "_job"):
+			self.top.after_cancel(self._job)
+
+		self.top.destroy()
 
 class CIMShaclGUI:
 	"""GUI for selecting multiple files and displaying a run summary."""
@@ -267,17 +318,29 @@ class CIMShaclGUI:
 		if self.file_config and dataset in self.file_config:
 			return self.file_config[dataset].get("last_directory", str(Path.home()))
 		return str(Path.home())
-	
+	def _check_thread(self, thread: threading.Thread) -> None:
+		if thread.is_alive():
+			self.root.after(100, lambda: self._check_thread(thread))
+		else:
+			self.loading_window.close()
+
 	def select_data_files(self) -> None:
 		initial_dir = self.load_dir_from_config("data")
 		files = filedialog.askopenfilenames(initialdir=initial_dir, title="Select data files")
-		if files:
-			filelist = list(files)
-			self.datahandler.data_files = filelist
-			self.data_var.set(f"{len(self.datahandler.data_files)} files selected")
-			self.datahandler.data_format = self.data_format.get()
-			self._save_config_info(filelist[0], "data", self.data_format.get())
-			self.datahandler.load_files()
+		
+		if not files:
+			return
+		
+		filelist = list(files)
+		self.datahandler.data_files = filelist
+		self.data_var.set(f"{len(self.datahandler.data_files)} files selected")
+		self.datahandler.data_format = self.data_format.get()
+		self._save_config_info(filelist[0], "data", self.data_format.get())
+
+		self.loading_window = LoadingDialog(self.root)	# The data files may be large so a progress dialog is shown while loading. 
+		thread = threading.Thread(target=self.datahandler.load_files, daemon=True)
+		thread.start()
+		self._check_thread(thread)
 
 	def select_rdfs_files(self) -> None:
 		initial_dir = self.load_dir_from_config("rdfs")
@@ -332,7 +395,6 @@ class CIMShaclGUI:
 			self._show_output_message(f"An error occurred:\n {str(e)}")
 
 	def _show_output_message(self, message: str) -> None:
-		# ttk.Label(top, text=message, padding=padding, font=OUTPUT_FONT).pack(fill="both", padx=10, pady=2)#expand=True)
 		self.output.config(state=tk.NORMAL)
 		self.output.insert(tk.END, message + "\n")
 		self.output.see(tk.END)
