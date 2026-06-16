@@ -55,14 +55,14 @@ class CollapsibleSection(ttk.Frame):
 
 
 class LoadingDialog:
-	def __init__(self, parent):
+	def __init__(self, parent: tk.Tk) -> None:
 		self.top = tk.Toplevel(parent)
 		self.top.title("Loading files...")
 		self.top.geometry("300x120")
 		self.top.transient(parent)
 		self.top.grab_set()
 
-		ttk.Label(self.top, text="Large files may take a while.").pack(pady=5)
+		ttk.Label(self.top, text="Large files may take a while").pack(pady=5)
 
 		self.progress = ttk.Progressbar(
 			self.top,
@@ -72,7 +72,6 @@ class LoadingDialog:
 		self.progress.pack(pady=5)
 		self.progress.start(10)
 
-		# ✅ Timer label
 		self.start_time = time.time()
 		self.time_label = ttk.Label(self.top, text="Elapsed: 0.0 s")
 		self.time_label.pack(pady=5)
@@ -318,6 +317,7 @@ class CIMShaclGUI:
 		if self.file_config and dataset in self.file_config:
 			return self.file_config[dataset].get("last_directory", str(Path.home()))
 		return str(Path.home())
+	
 	def _check_thread(self, thread: threading.Thread) -> None:
 		if thread.is_alive():
 			self.root.after(100, lambda: self._check_thread(thread))
