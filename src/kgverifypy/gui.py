@@ -1,4 +1,4 @@
-"""Simple Tkinter GUI for selecting CIM/SHACL files and showing output."""
+"""Tkinter GUI for running SHACL validations."""
 
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox, scrolledtext
@@ -24,6 +24,7 @@ OUTPUT_FONT = ("TkDefaultFont", 16) # 13
 
 
 class CollapsibleSection(ttk.Frame):
+	"""Make a collapsible section."""
 	def __init__(self, parent: ttk.Frame, title: str = "Section") -> None:
 		super().__init__(parent)
 
@@ -44,6 +45,7 @@ class CollapsibleSection(ttk.Frame):
 		self.content.columnconfigure(0, weight=1)
 
 	def toggle(self) -> None:
+		"""Toggle the visibility of the content frame and update the header button text accordingly."""
 		self.open = not self.open
 
 		if self.open:
@@ -55,6 +57,7 @@ class CollapsibleSection(ttk.Frame):
 
 
 class LoadingDialog:
+	"""A simple loading dialog with a progress bar and elapsed time display."""
 	def __init__(self, parent: tk.Tk) -> None:
 		self.top = tk.Toplevel(parent)
 		self.top.title("Loading files...")
@@ -78,7 +81,8 @@ class LoadingDialog:
 
 		self._update_timer()
 
-	def _update_timer(self):
+	def _update_timer(self) -> None:
+		"""Update the elapsed time display and schedule the next update."""
 		elapsed = time.time() - self.start_time
 		if elapsed < 60:
 			self.time_label.config(text=f"Elapsed: {elapsed:.1f} s")
@@ -93,7 +97,8 @@ class LoadingDialog:
 		# schedule next update
 		self._job = self.top.after(100, self._update_timer)
 
-	def close(self):
+	def close(self) -> None:
+		"""Stop the progress bar, cancel timer updates, and close the dialog."""
 		self.progress.stop()
 
 		# stop timer updates
@@ -102,47 +107,74 @@ class LoadingDialog:
 
 		self.top.destroy()
 
-class CIMShaclGUI:
-	"""GUI for selecting multiple files and displaying a run summary."""
 
-	def __init__(self) -> None:
+class CIMShaclGUI:
+	"""GUI for running SHACL validations."""
+
+	def __init__(self, root: Optional[tk.Tk] = None) -> None:
 		self.datahandler = DataHandler()
-		self.file_config = load_json(FILE_CONFIG_PATH) if FILE_CONFIG_PATH.exists() else {}
-		self.root = tk.Tk()
+		self.file_config = load_json(FILE_CONFIG_PATH)
+		self.root = root or tk.Tk()
 		self._configure_root_window()
 		self._configure_styles()
-
-		self.shacl_format = tk.StringVar(value="ttl")
-		self.data_format = tk.StringVar(value="cimxml")
-		self.validation_output_path = tk.StringVar(value=DEFAULT_VALIDATION_OUTPUT)
-		self.validation_output_format = tk.StringVar(value="json-ld")
-		self.add_datatypes_var = tk.BooleanVar(value=False)
-		self.custom_url_var = tk.StringVar()
-		self.csv_report_var = tk.BooleanVar(value=False)
-
+		self._init_variables()
 		self.validation_service = ShaclValidationService()
+		self._restore_format_from_file_config()
 
-		self._build_ui()
-		self._restore_from_config()
-		self.datahandler.load_files()
+		self._build_gui()
+
+	def run(self) -> None:
+		"""Start the Tkinter main loop to run the GUI."""
 		self.root.mainloop()
-
+	
 	def _configure_root_window(self) -> None:
+		"""Configure the main window of the GUI."""
 		self.root.title("CIM pySHACL GUI")
 		self.root.geometry(DEFAULT_MAIN_GEOMETRY)
 		self.root.minsize(*DEFAULT_MAIN_MIN_SIZE)
 
 	def _configure_styles(self) -> None:
-		# Increase default text size for the whole GUI.
+		"""Configure the various styles for the GUI."""
 		self.style = ttk.Style(self.root)
 		self.style.configure("TLabel", font=UI_FONT)
 		self.style.configure("TButton", font=UI_FONT)
 		self.style.configure("TRadiobutton", font=UI_FONT)
 		self.style.configure("TEntry", font=UI_FONT)
 		self.style.configure("TCheckbutton", font=UI_FONT)
-		self.style.configure("scrolltext", font=UI_FONT)
 
-	def _build_ui(self) -> None:
+	def _init_variables(self) -> None:
+		"""Initialize the Tkinter variables used in the GUI."""
+		self.data_format = tk.StringVar(value="cimxml")
+		self.shacl_format = tk.StringVar(value="ttl")
+		self.data_var = tk.StringVar(value="No files selected")
+		self.shacl_var = tk.StringVar(value="No files selected")
+		self.rdfs_var = tk.StringVar(value="No files selected")
+		self.datatype_var = tk.StringVar(value="If left empty a default context will be used")
+		self.validation_output_path = tk.StringVar(value=DEFAULT_VALIDATION_OUTPUT)
+		self.validation_output_format = tk.StringVar(value="json-ld")
+		self.add_datatypes_var = tk.BooleanVar(value=False)
+		self.custom_url_var = tk.StringVar()
+		self.csv_report_var = tk.BooleanVar(value=False)
+
+	def _restore_format_from_file_config(self) -> None:
+		"""Restore the last used data and SHACL formats from the file configuration, if available."""
+		if not self.file_config:
+			return
+		
+		data_cfg = self.file_config.get("data", {})
+		data_format = data_cfg.get("format", "cimxml") if data_cfg else "cimxml"
+		self.data_format.set(data_format)
+		self.datahandler.data_format = data_format
+
+		shacl_cfg = self.file_config.get("shacl", {})
+		shacl_format = shacl_cfg.get("format", "ttl") if shacl_cfg else "ttl"
+		self.shacl_format.set(shacl_format)
+		self.datahandler.shacl_format = shacl_format
+
+	# Gui building methods
+
+	def _build_gui(self) -> None:
+		"""Build the GUI layout and components."""
 		frame = ttk.Frame(self.root, padding=12)
 		frame.grid(row=0, column=0, sticky="nsew")
 
@@ -150,104 +182,153 @@ class CIMShaclGUI:
 		self.root.rowconfigure(0, weight=1)
 		frame.columnconfigure(0, weight=1)
 
-		self.data_var = tk.StringVar(value=self.file_config.get("data_files", "No files selected") if self.file_config else "No files selected")
-		self.shacl_var = tk.StringVar(value=self.file_config.get("shacl_files", "No files selected") if self.file_config else "No files selected")
-
 		row = 0
-		row = self._file_selection_section(frame, row)
-		row += 1
+
+		# row gets incremented in the section methods so that the next section is placed correctly below the previous one.
+		row = self._file_selection_section(frame, row, "Data", self.data_format, self.data_var, [("CIMXML", "cimxml"), ("RDF/XML", "xml"), ("JSON-LD", "json-ld"), ("TRIG", "trig"), ("TTL", "ttl")], self.select_data_files)
+		row = self._file_selection_section(frame, row, "SHACL", self.shacl_format, self.shacl_var, [("TTL", "ttl"), ("RDF/XML", "xml")], self.select_shacl_file)
+		row = self._add_collapsible_section(frame, row, "Add RDFS files", self._rdfs_section)
+		row = self._add_collapsible_section(frame, row, "Datatype enrichment options", self._datatype_section)
 		
-		# For adding RDFS files
-		rdfs_section = CollapsibleSection(frame, title="Add RDFS files")
-		rdfs_section.grid(row=row, column=0, sticky="ew", pady=(20, 10))
-		self.rdfs_section(rdfs_section.content, 0)
-		row += 1
+		ttk.Button(frame, text="Check namespaces", command=self.show_namespace_report).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(15, 15))
 
-		# For adding datatypes from context
-		datatype_section = CollapsibleSection(frame, title="Datatype enrichment options")
-		datatype_section.grid(row=row, column=0, sticky="ew", pady=(0, 20))
-		self._datatype_section(datatype_section.content, 0)
-		row += 1
+		row = self._validation_output_section(frame, row + 1)
+
+		ttk.Button(frame, text="Run SHACL validation", command=self.start_validation).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(15, 0))
+
+	def _file_selection_section(self, frame: ttk.Frame, start_row: int, title: str, format_var: tk.StringVar, file_var: tk.StringVar, format_options: list[tuple[str, str]], select_command: Callable[[], None]) -> int:
+		"""Build a file selection section with radiobuttons.
 		
-		ttk.Button(frame, text="Check namespaces", command=self.show_namespace_report).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(5, 15))
-		row += 1
-
-		row = self._shacl_output_section(frame, row)
-
-		ttk.Button(frame, text="Run SHACL validation", command=self.run).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(14, 0))
-
-	def _restore_from_config(self) -> None:
-		if not self.file_config:
-			return
+		Parameters:
+			frame (ttk.Frame): The parent frame to build the section in.
+			start_row (int): The row index to start placing the section components.
+			title (str): The title of the section (e.g., "Data" or "SHACL").
+			format_var (tk.StringVar): The StringVar to bind the selected format radiobuttons to.
+			file_var (tk.StringVar): The StringVar to bind the selected file path to.
+			format_options (list[tuple[str, str]]): A list of tuples containing the display text and value for each format option.
+			select_command (Callable[[], None]): The command function to call when the "Browse" button is clicked.
 		
-		data_cfg = self.file_config.get("data", {})
-		data_format = data_cfg.get("format", "cimxml")
-		self.data_format.set(data_format)
-		self.datahandler.data_format = data_format
-
-		shacl_cfg = self.file_config.get("shacl", {})
-		shacl_format = shacl_cfg.get("format", "ttl")
-		self.shacl_format.set(shacl_format)
-		self.datahandler.shacl_format = shacl_format
-
-	def _file_selection_section(self, frame: ttk.Frame, start_row: int) -> int:
+		Returns:
+			int: The next row index after the section components, to allow for correct placement of subsequent sections.
+		"""
 		row = start_row
 
-		# Data files
-		ttk.Label(frame, text="Data files:").grid(row=row, column=0, sticky="w", pady=(10, 6))
-		row += 1
+		ttk.Label(frame, text=f"{title} files:").grid(row=row, column=0, sticky="w", pady=(10, 6))
+		row = self._make_radio_group(frame, row +1, format_var, format_options)
+		row = self._add_file_picker_row(frame, row, file_var, select_command)
+
+		return row +1
 		
-		data_format_frame = ttk.Frame(frame)
-		data_format_frame.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(0, 6))
-		ttk.Radiobutton(data_format_frame, text="CIMXML", variable=self.data_format, value="cimxml").pack(side="left", padx=(0, 12))
-		ttk.Radiobutton(data_format_frame, text="RDF/XML", variable=self.data_format, value="xml").pack(side="left", padx=(0, 12))
-		ttk.Radiobutton(data_format_frame, text="JSON-LD", variable=self.data_format, value="json-ld").pack(side="left", padx=(0, 12))
-		ttk.Radiobutton(data_format_frame, text="TRIG", variable=self.data_format, value="trig").pack(side="left", padx=(0, 12))
-		ttk.Radiobutton(data_format_frame, text="TTL", variable=self.data_format, value="ttl").pack(side="left")
-		row += 1
-
-		row = self._add_file_picker_row(frame, row, self.data_var, self.select_data_files)
-
-		# SHACL files
-		ttk.Label(frame, text="SHACL files:").grid(row=row, column=0, sticky="w", pady=(10, 6))
-		row += 1
-
-		shacl_format_frame = ttk.Frame(frame)
-		shacl_format_frame.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(0, 6))
-		ttk.Radiobutton(shacl_format_frame, text="TTL", variable=self.shacl_format, value="ttl").pack(side="left", padx=(0, 12))
-		ttk.Radiobutton(shacl_format_frame, text="RDF", variable=self.shacl_format, value="xml").pack(side="left")
-		row += 1
-
-		row = self._add_file_picker_row(frame, row, self.shacl_var, self.select_shacl_file)
-		row += 1
-
-		return row
-	
-	def rdfs_section(self, frame: ttk.Frame, start_row: int) -> int:
+	def _rdfs_section(self, frame: ttk.Frame, start_row: int) -> int:
+		"""Build the RDFS file selection section.
+		
+		Parameters:
+			frame (ttk.Frame): The parent frame to build the section in.
+			start_row (int): The row index to start placing the section components.
+		
+		Returns:
+			int: The next row index after the section components, to allow for correct placement of subsequent sections.
+		"""
 		row = start_row
-
-		self.rdfs_var = tk.StringVar(value="No files selected")
-
-		row = self._add_file_picker_row(frame, row, self.rdfs_var, self.select_rdfs_files)
-		row += 1
-		return row
+		row = self._add_file_picker_row(frame, row, self.rdfs_var, self.select_rdfs_files)		
+		return row +1
 
 	def _datatype_section(self, frame: ttk.Frame, start_row: int) -> int:
-		row = start_row
+		"""Build the datatype enrichment options section.
+		
+		Parameters:
+			frame (ttk.Frame): The parent frame to build the section in.
+			start_row (int): The row index to start placing the section components.
 
-		self.datatype_file_var = tk.StringVar(value="If left empty a default context will be used")
+		Returns:
+			int: The next row index after the section components, to allow for correct placement of subsequent sections.
+		"""
+		row = start_row
 
 		check = ttk.Checkbutton(frame, text="Add datatypes", variable=self.add_datatypes_var)
 		check.grid(row=row, column=0, sticky="w")
-		row += 1
+		
+		ttk.Label(frame, text="Custom context file:").grid(row=row +1, column=0, sticky="w", pady=(10, 6))
+		row = self._add_file_picker_row(frame, row +1, self.datatype_var, self.select_datatype_file)
 
-		ttk.Label(frame, text="Custom context file:").grid(row=row, column=0, sticky="w", pady=(10, 6))
-		row += 1
-		row = self._add_file_picker_row(frame, row, self.datatype_file_var, self.select_datatype_file)
-		row += 1
-
-		return row
+		return row +1
 	
+	def _validation_output_section(self, frame: ttk.Frame, start_row: int) -> int:
+		"""Build the validation output options section.
+		
+		Parameters:
+			frame (ttk.Frame): The parent frame to build the section in.
+			start_row (int): The row index to start placing the section components.
+
+		Returns:
+			int: The next row index after the section components, to allow for correct placement of subsequent sections.
+		"""
+		row = start_row
+
+		ttk.Label(frame, text="Validation output file path:").grid(row=row +1, column=0, sticky="w", pady=(10, 6))
+		row = self._make_radio_group(frame, row +2, self.validation_output_format, [("JSON-LD", "json-ld"), ("TTL", "ttl"), ("RDF/XML", "xml")])
+		ttk.Entry(frame, textvariable=self.validation_output_path).grid(row=row +3, column=0, columnspan=2, sticky="ew", pady=(6, 6))
+
+		check = ttk.Checkbutton(frame, text="CSV report", variable=self.csv_report_var)
+		check.grid(row=row +4, column=0, sticky="w", pady=(10, 6))
+
+		return row +5
+	
+	def _add_collapsible_section(self, frame: ttk.Frame, start_row: int, title: str, builder_fn: Callable[[ttk.Frame, int], int]) -> int:
+		""""Add a collapsible section to the GUI and use the provided builder function to populate its content.
+		
+		Parameters:
+			frame (ttk.Frame): The parent frame to build the section in.
+			start_row (int): The row index to start placing the section components.
+			title (str): The title of the collapsible section.
+			builder_fn (Callable[[ttk.Frame, int], int]): A function that takes a ttk.Frame and a starting row index, builds the content of the section, and returns the next row index after the content.
+
+		Returns:
+			int: The next row index after the section components, to allow for correct placement of subsequent sections.
+		"""
+		section = CollapsibleSection(frame, title=title)
+		section.grid(row=start_row, column=0, sticky="ew", pady=(10, 10))
+		builder_fn(section.content, 0)
+		return start_row + 1
+
+	def _make_radio_group(self, frame: ttk.Frame, start_row: int, variable: tk.StringVar, options: list[tuple[str, str]]) -> int:
+		"""Create a group of radiobuttons for selecting options.
+		
+		Parameters:
+			frame (ttk.Frame): The parent frame to build the radio buttons in.
+			start_row (int): The row index for the radio buttons.
+			variable (tk.StringVar): The StringVar to bind the selected radio button value to.
+			options (list[tuple[str, str]]): A list of tuples containing the display text and value for each radio button option.
+
+		Returns:
+			int: The next row index after the radio buttons, to allow for correct placement of subsequent components.
+		"""
+		radio_frame = ttk.Frame(frame)
+		radio_frame.grid(row=start_row, column=0, columnspan=2, sticky="ew", pady=(0, 6))
+
+		for text, value in options:
+			ttk.Radiobutton(radio_frame, text=text, variable=variable, value=value).pack(side="left", padx=(0, 12))
+
+		return start_row + 1
+
+	def _add_file_picker_row(self, frame: ttk.Frame, start_row: int, value_var: tk.StringVar, command: Callable[[], None]) -> int:
+		"""Add a file picker row with an entry displaying the selected file and a "Browse" button.
+		
+		Parameters:
+			frame (ttk.Frame): The parent frame to build the file picker row in.
+			start_row (int): The row index to start placing the file picker components.
+			value_var (tk.StringVar): The StringVar to bind the selected file path to.
+			command (Callable[[], None]): The function to call when the "Browse" button is clicked.
+
+		Returns:
+			int: The next row index after the file picker components, to allow for correct placement of subsequent components.
+		"""
+		ttk.Entry(frame, textvariable=value_var, state="readonly").grid(row=start_row, column=0, sticky="ew", padx=(0, 8))
+		ttk.Button(frame, text="Browse", command=command).grid(row=start_row, column=1, sticky="ew")
+		return start_row + 1
+
+	# Interaction methods
+
 	def show_namespace_report(self):
 		graphs = {
 			"data": self.datahandler.data_graph,
@@ -274,38 +355,6 @@ class CIMShaclGUI:
 		text_area.config(state=tk.DISABLED)
 		text_area.pack(padx=10, pady=10)
 
-	def _shacl_output_section(self, frame: ttk.Frame, start_row: int) -> int:
-		row = start_row
-
-		ttk.Label(frame, text="Validation output file path:").grid(row=row, column=0, sticky="w", pady=(10, 6))
-		row += 1
-
-		validation_format_frame = ttk.Frame(frame)
-		validation_format_frame.grid(row=row, column=0, columnspan=2, sticky="ew")
-		ttk.Radiobutton(validation_format_frame, text="JSON-LD", variable=self.validation_output_format, value="json-ld").pack(side="left", padx=(0, 12))
-		ttk.Radiobutton(validation_format_frame, text="TTL", variable=self.validation_output_format, value="ttl").pack(side="left", padx=(0, 12))
-		ttk.Radiobutton(validation_format_frame, text="RDF", variable=self.validation_output_format, value="xml").pack(side="left")
-		row += 1
-
-		ttk.Entry(frame, textvariable=self.validation_output_path).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(6, 6))
-		row += 1
-
-		check = ttk.Checkbutton(frame, text="CSV report", variable=self.csv_report_var)
-		check.grid(row=row, column=0, sticky="w", pady=(10, 6))
-		row += 1
-
-		return row
-	
-	def _add_file_picker_row(
-		self,
-		frame: ttk.Frame,
-		start_row: int,
-		value_var: tk.StringVar,
-		command: Callable[[], None],
-	) -> int:
-		ttk.Entry(frame, textvariable=value_var, state="readonly").grid(row=start_row, column=0, sticky="ew", padx=(0, 8))
-		ttk.Button(frame, text="Browse", command=command).grid(row=start_row, column=1, sticky="ew")
-		return start_row + 1
 
 	def _save_config_info(self, filestr: str, dataset: str, format: Optional[str] = None) -> None:
 		if format:
@@ -338,19 +387,9 @@ class CIMShaclGUI:
 		self._save_config_info(filelist[0], "data", self.data_format.get())
 
 		self.loading_window = LoadingDialog(self.root)	# The data files may be large so a progress dialog is shown while loading. 
-		thread = threading.Thread(target=self.datahandler.load_files, daemon=True)
+		thread = threading.Thread(target=self.datahandler.load_data_files, daemon=True)
 		thread.start()
 		self._check_thread(thread)
-
-	def select_rdfs_files(self) -> None:
-		initial_dir = self.load_dir_from_config("rdfs")
-		files = filedialog.askopenfilenames(initialdir=initial_dir, title="Select RDFS files")
-		if files:	# RDFS files are optional so last filepaths are not recorded.
-			filelist = list(files)
-			self.datahandler.rdfs_files = filelist
-			self.rdfs_var.set(f"{len(self.datahandler.rdfs_files)} files selected")
-			self._save_config_info(filelist[0], "rdfs")
-			self.datahandler.load_files()
 
 	def select_shacl_file(self) -> None:
 		initial_dir = self.load_dir_from_config("shacl")
@@ -360,18 +399,28 @@ class CIMShaclGUI:
 			self.shacl_var.set(file)
 			self.datahandler.shacl_format = self.shacl_format.get()
 			self._save_config_info(file, "shacl", self.shacl_format.get())
-			self.datahandler.load_files()
+			self.datahandler.load_shacl_file()
+
+	def select_rdfs_files(self) -> None:
+		initial_dir = self.load_dir_from_config("rdfs")
+		files = filedialog.askopenfilenames(initialdir=initial_dir, title="Select RDFS files")
+		if files:
+			filelist = list(files)
+			self.datahandler.rdfs_files = filelist
+			self.rdfs_var.set(f"{len(self.datahandler.rdfs_files)} files selected")
+			self._save_config_info(filelist[0], "rdfs")
+			self.datahandler.load_rdfs_files()
 
 	def select_datatype_file(self) -> None:
 		initial_dir = self.load_dir_from_config("datatypes")
 		file = filedialog.askopenfilename(initialdir=initial_dir, title="Select context file for datatype enrichment")
 		if file:
 			self.datahandler.datatype_file = file
-			self.datatype_file_var.set(file)
+			self.datatype_var.set(file)
 			self._save_config_info(file, "datatypes")
-			self.datahandler.load_files()
+			self.datahandler.load_datatypes()
 
-	def run(self) -> None:
+	def start_validation(self) -> None:
 		top = tk.Toplevel(self.root)
 		top.title("Run output")
 		top.geometry(DEFAULT_OUTPUT_GEOMETRY)
@@ -390,7 +439,7 @@ class CIMShaclGUI:
 			self._show_output_message("Running SHACL validation...\n")
 			self._prepare_data_graph()
 			self._report_focus_nodes(top)
-			self._run_shacl_validation_async(top, progress)
+			self._process_shacl_validation_async(top, progress)
 		except Exception as e:
 			self._show_output_message(f"An error occurred:\n {str(e)}")
 
@@ -418,7 +467,7 @@ class CIMShaclGUI:
 		)
 		self._show_output_message(focus_message)
 
-	def _run_shacl_validation_async(self, top, progress):
+	def _process_shacl_validation_async(self, top, progress):
 		progress.start()
 
 		def worker():

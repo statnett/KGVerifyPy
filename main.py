@@ -7,8 +7,8 @@ dictConfig(LOG_CONFIG)
 
 
 def main():
-    CIMShaclGUI()
-
+    gui = CIMShaclGUI()
+    gui.run()
 
 if __name__ == "__main__":
     main()

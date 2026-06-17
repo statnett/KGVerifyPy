@@ -20,6 +20,42 @@ class DataHandler:
         self.datatypes: dict|None = None
 
 
+    def load_data_files(self) -> None:
+        if not self.data_files:
+            self.data_graph = None
+            return
+
+        if self.data_format == "trig":
+            self.data_graph = merge_trig_graphs(self.data_files)
+        else:
+            self.data_graph = make_graphs_from(self.data_files, format=self.data_format)
+
+
+    def load_shacl_file(self) -> None:
+        if not self.shacl_file:
+            self.shacl_graph = None
+            return
+
+        self.shacl_graph = make_graphs_from(self.shacl_file, format=self.shacl_format)
+
+
+    def load_rdfs_files(self) -> None:
+        if not self.rdfs_files:
+            self.rdfs_graph = None
+            return
+
+        self.rdfs_graph = make_graphs_from(self.rdfs_files, format="xml")
+
+
+    def load_datatypes(self) -> None:
+        if not self.datatype_file:
+            self.datatypes = None
+            return
+
+        self.datatypes = load_json(self.datatype_file)
+
+
+
     def _load_multiple_graph_files(self, files: list[str], format: str) -> None | Graph:
         """Loads multiple graph files using different loaders based on the format.
         
