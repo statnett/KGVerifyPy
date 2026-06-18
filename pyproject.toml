@@ -5,15 +5,15 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "kgraphpy",
+    "kgraphpy @ git+https://github.com/statnett/KGraphPy.git@main",
     "pyshacl>=0.31.0",
 ]
 
-[tool.uv.sources]
-kgraphpy = { git = "ssh://git@github.com/statnett/KGraphPy.git", rev = "main" }
-
 [tool.setuptools]
-packages = ["src/kgverifypy"]
+packages-dir = ["" = "src"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.setuptools.package-data]
 kgverifypy = ["*.json"]

@@ -1,3 +1,3 @@
-python -m venv .venv
+py -m venv .venv
 call .venv\Scripts\activate
 pip install -e .
