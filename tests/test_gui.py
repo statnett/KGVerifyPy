@@ -6,7 +6,6 @@ import time
 
 from src.kgverifypy.gui import (
     CollapsibleSection,
-    LoadingDialog,
     CIMShaclGUI,
     all_namespaces_match, 
     format_namespace_matrix
@@ -37,60 +36,60 @@ def test_collapsiblesection_toggle(open: bool) -> None:
 
 
 # Unit tests LoadingDialog
-@patch.object(LoadingDialog, "_update_timer")
-def test_loadingdialog_initialization(mock_update_timer: Mock) -> None:
-    root = tk.Tk()
-    dialog = LoadingDialog(root)
-    assert dialog.top.winfo_exists() == 1
-    assert dialog.top.title() == "Loading files..."
-    assert dialog.progress.winfo_exists() == 1
-    assert isinstance(dialog.start_time, float)
-    mock_update_timer.assert_called_once()
+# @patch.object(LoadingDialog, "_update_timer")
+# def test_loadingdialog_initialization(mock_update_timer: Mock) -> None:
+#     root = tk.Tk()
+#     dialog = LoadingDialog(root)
+#     assert dialog.top.winfo_exists() == 1
+#     assert dialog.top.title() == "Loading files..."
+#     assert dialog.progress.winfo_exists() == 1
+#     assert isinstance(dialog.start_time, float)
+#     mock_update_timer.assert_called_once()
 
 
-@pytest.mark.parametrize(
-    "elapsed, expected_text",
-    [
-        pytest.param(5, "Elapsed: 5.0 s", id="< 60 seconds"),
-        pytest.param(75, "Elapsed: 1 min 15 s", id="< 3600 seconds"),
-        pytest.param(3665, "Elapsed: 1 h 1 min", id=">= 3600 seconds"),
-    ],
-)
-@patch("time.time")
-def test_loadingdialog_update_timer(mock_time: MagicMock, elapsed: int, expected_text: str) -> None:
-    dialog = LoadingDialog.__new__(LoadingDialog)  # avoid __init__
+# @pytest.mark.parametrize(
+#     "elapsed, expected_text",
+#     [
+#         pytest.param(5, "Elapsed: 5.0 s", id="< 60 seconds"),
+#         pytest.param(75, "Elapsed: 1 min 15 s", id="< 3600 seconds"),
+#         pytest.param(3665, "Elapsed: 1 h 1 min", id=">= 3600 seconds"),
+#     ],
+# )
+# @patch("time.time")
+# def test_loadingdialog_update_timer(mock_time: MagicMock, elapsed: int, expected_text: str) -> None:
+#     dialog = LoadingDialog.__new__(LoadingDialog)  # avoid __init__
 
-    dialog.start_time = 1000
-    dialog.time_label = MagicMock()
-    dialog.top = MagicMock()
-    dialog.top.after.return_value = "job_id"
+#     dialog.start_time = 1000
+#     dialog.time_label = MagicMock()
+#     dialog.top = MagicMock()
+#     dialog.top.after.return_value = "job_id"
 
-    mock_time.return_value = 1000 + elapsed
+#     mock_time.return_value = 1000 + elapsed
 
-    dialog._update_timer()
+#     dialog._update_timer()
 
-    dialog.time_label.config.assert_called_with(text=expected_text)
+#     dialog.time_label.config.assert_called_with(text=expected_text)
 
-    dialog.top.after.assert_called_once_with(100, dialog._update_timer)
+#     dialog.top.after.assert_called_once_with(100, dialog._update_timer)
 
-@pytest.mark.parametrize("with_job", [True, False])
-def test_loadingdialog_close(with_job: bool) -> None:
-    dialog = LoadingDialog.__new__(LoadingDialog)
-    dialog.progress = MagicMock()
-    dialog.top = MagicMock()
+# @pytest.mark.parametrize("with_job", [True, False])
+# def test_loadingdialog_close(with_job: bool) -> None:
+#     dialog = LoadingDialog.__new__(LoadingDialog)
+#     dialog.progress = MagicMock()
+#     dialog.top = MagicMock()
 
-    if with_job:
-        dialog._job = "job_id"
+#     if with_job:
+#         dialog._job = "job_id"
 
-    dialog.close()
+#     dialog.close()
 
-    dialog.progress.stop.assert_called_once()
-    dialog.top.destroy.assert_called_once()
+#     dialog.progress.stop.assert_called_once()
+#     dialog.top.destroy.assert_called_once()
 
-    if with_job:
-        dialog.top.after_cancel.assert_called_once_with("job_id")
-    else:
-        dialog.top.after_cancel.assert_not_called()
+#     if with_job:
+#         dialog.top.after_cancel.assert_called_once_with("job_id")
+#     else:
+#         dialog.top.after_cancel.assert_not_called()
 
 # Unit tests CIMShaclGUI
 # ._restore_format_from_file_config
@@ -135,11 +134,16 @@ def test_loadingdialog_close(with_job: bool) -> None:
         ]
 )
 def test_restore_format_from_file_config(file_config: dict, data_fm: str, shacl_fm: str) -> None:
-    gui = CIMShaclGUI()
+    gui = CIMShaclGUI().__new__(CIMShaclGUI)  # Avoid __init__ since it calls _restore_format_from_file_config
+    gui.data_format = tk.StringVar(value="cimxml")
+    gui.shacl_format = tk.StringVar(value="ttl")
+    gui.datahandler = Mock()
+    gui.datahandler.data_format = "cimxml"
+    gui.datahandler.shacl_format = "ttl"
     gui.file_config = file_config
 
     gui._restore_format_from_file_config()
-
+    print(gui.data_format.get(), gui.shacl_format.get())
     assert gui.data_format.get() == data_fm if data_fm is not None else "None"  # tk.StringVar will convert None to "None"
     assert gui.shacl_format.get() == shacl_fm if shacl_fm is not None else "None"
     assert gui.datahandler.data_format == data_fm

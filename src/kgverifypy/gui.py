@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk, messagebox, scrolledtext
 import time
 import threading
+import queue
 from typing import Callable, Optional
 from pathlib import Path
 from rdflib.namespace import SH
@@ -12,6 +13,9 @@ from kgverifypy.validation_service import ShaclValidationService
 from kgverifypy.csv_utilities import collect_violations, write_shacl_violations_to_csv
 from kgverifypy.data_handler import DataHandler
 from kgverifypy.namespaces import compare_namespaces
+import logging
+
+logger = logging.getLogger("primary")
 
 FILE_CONFIG_PATH = Path(__file__).parent / "file_config.json"
 DEFAULT_MAIN_GEOMETRY = "760x700"
@@ -21,6 +25,49 @@ DEFAULT_OUTPUT_MIN_SIZE = (680, 420)
 DEFAULT_VALIDATION_OUTPUT = "../validation_results.json"
 UI_FONT = ("TkDefaultFont", 14)	# 12
 OUTPUT_FONT = ("TkDefaultFont", 16) # 13
+
+
+def safe_gui_call(title="Error"):
+    def decorator(func):
+        def wrapper(self, *args, **kwargs):
+            try:
+                return func(self, *args, **kwargs)
+            except Exception as e:
+                # Full traceback goes to log
+                logger.exception("Unhandled exception in GUI action")
+
+                # Short message to user (must be in main thread)
+                self.root.after(
+                    0,
+                    lambda e=e: messagebox.showerror(title, str(e))
+                )
+        return wrapper
+    return decorator
+
+
+def safe_gui_thread(title="Error"):
+    def decorator(func):
+        def wrapper(self, *args, **kwargs):
+            def run():
+                try:
+                    func(self, *args, **kwargs)
+                except Exception as e:
+                    logger.exception("Unhandled exception in background task")
+
+                    self.root.after(
+                        0,
+                        lambda e=e: messagebox.showerror(title, str(e))
+                    )
+                finally:
+                    if hasattr(self, "loading_window"):
+                        self.root.after(0, self.loading_window.stop)
+
+            thread = threading.Thread(target=run, daemon=True)
+            thread.start()
+            return thread
+
+        return wrapper
+    return decorator
 
 
 class CollapsibleSection(ttk.Frame):
@@ -56,56 +103,76 @@ class CollapsibleSection(ttk.Frame):
 			self.content.forget()
 
 
-class LoadingDialog:
-	"""A simple loading dialog with a progress bar and elapsed time display."""
-	def __init__(self, parent: tk.Tk) -> None:
+class ProgressTimerDialog:
+	def __init__(self, parent, title="Processing...", message=None):
 		self.top = tk.Toplevel(parent)
-		self.top.title("Loading files...")
-		self.top.geometry("300x120")
+		self.top.title(title)
+		self.top.geometry("320x140")
 		self.top.transient(parent)
 		self.top.grab_set()
 
-		ttk.Label(self.top, text="Large files may take a while").pack(pady=5)
+		if message:
+			ttk.Label(self.top, text=message).pack(pady=(8, 4))
 
 		self.progress = ttk.Progressbar(
 			self.top,
 			mode="indeterminate",
-			length=250
+			length=260
 		)
 		self.progress.pack(pady=5)
-		self.progress.start(10)
 
-		self.start_time = time.time()
 		self.time_label = ttk.Label(self.top, text="Elapsed: 0.0 s")
 		self.time_label.pack(pady=5)
 
-		self._update_timer()
+		# internal state
+		self._job = None
+		self.start_time = time.time()
 
-	def _update_timer(self) -> None:
-		"""Update the elapsed time display and schedule the next update."""
+	# ---------- TIMER ----------
+	def _format_elapsed(self):
 		elapsed = time.time() - self.start_time
+
 		if elapsed < 60:
-			self.time_label.config(text=f"Elapsed: {elapsed:.1f} s")
+			return f"Elapsed: {elapsed:.1f} s"
 		elif elapsed < 3600:
 			mins = int(elapsed // 60)
-			self.time_label.config(text=f"Elapsed: {mins} min {int(elapsed % 60)} s")
-		else:			
+			return f"Elapsed: {mins} min {int(elapsed % 60)} s"
+		else:
 			hours = int(elapsed // 3600)
 			mins = int((elapsed % 3600) // 60)
-			self.time_label.config(text=f"Elapsed: {hours} h {mins} min")
+			return f"Elapsed: {hours} h {mins} min"
 
-		# schedule next update
-		self._job = self.top.after(100, self._update_timer)
+	def _tick(self):
+		self.time_label.config(text=self._format_elapsed())
+		self._job = self.top.after(100, self._tick)
 
-	def close(self) -> None:
-		"""Stop the progress bar, cancel timer updates, and close the dialog."""
+	# ---------- CONTROL ----------
+	def start(self):
+		self.start_time = time.time()
+		self.progress.start(10)
+		self._tick()
+
+	def stop(self):
+		"""Stops timer and progress WITHOUT closing window"""
 		self.progress.stop()
 
-		# stop timer updates
-		if hasattr(self, "_job"):
+		if self._job:
 			self.top.after_cancel(self._job)
+			self._job = None
 
+		# One final update so the time freezes correctly
+		if self.start_time:
+			self.time_label.config(text=self._format_elapsed())
+
+	def close(self):
+		"""Stops everything and closes window"""
+		self.stop()
 		self.top.destroy()
+
+	def get_elapsed_text(self):
+		if self.start_time:
+			return self._format_elapsed()
+		return "Elapsed: 0.0 s"
 
 
 class CIMShaclGUI:
@@ -327,7 +394,95 @@ class CIMShaclGUI:
 		ttk.Button(frame, text="Browse", command=command).grid(row=start_row, column=1, sticky="ew")
 		return start_row + 1
 
-	# Interaction methods
+	# Data handling methods
+
+	def _save_config_info(self, filestr: str, dataset: str, format: Optional[str] = None) -> None:
+		if format:
+			self.file_config[dataset]["format"] = format
+		self.file_config[dataset]["last_directory"] = str(Path(filestr).parent)
+		save_json(self.file_config, FILE_CONFIG_PATH)
+
+	def _load_dir_from_config(self, dataset: str) -> str:
+		if self.file_config and dataset in self.file_config:
+			return self.file_config[dataset].get("last_directory", str(Path.home()))
+		return str(Path.home())
+	
+	def _check_thread(self, thread: threading.Thread) -> None:
+		if thread.is_alive():
+			self.root.after(100, lambda: self._check_thread(thread))
+		else:
+			self.loading_window.close()
+
+	@safe_gui_thread(title="Error loading data files")
+	def _load_data_files_thread(self):
+		self.datahandler.load_data_files()
+		
+	def select_data_files(self) -> None:
+		initial_dir = self._load_dir_from_config("data")
+		files = filedialog.askopenfilenames(initialdir=initial_dir, title="Select data files")
+		
+		if not files:
+			return
+		
+		filelist = list(files)
+		self.datahandler.data_files = filelist
+		self.data_var.set(f"{len(self.datahandler.data_files)} files selected")
+		self.datahandler.data_format = self.data_format.get()
+		self._save_config_info(filelist[0], "data", self.data_format.get())
+
+		self.loading_window = ProgressTimerDialog(self.root, title="Loading data files...", message="Large files may take a while")
+		self.loading_window.start()
+		thread = threading.Thread(target=self._load_data_files_thread, daemon=True)
+		thread.start()
+		self._check_thread(thread)
+
+	@safe_gui_call(title="Error loading SHACL file")
+	def select_shacl_file(self) -> None:
+		initial_dir = self._load_dir_from_config("shacl")
+		file = filedialog.askopenfilename(initialdir=initial_dir, title="Select shacl file")
+		if file:
+			self.datahandler.shacl_file = file
+			self.shacl_var.set(file)
+			self.datahandler.shacl_format = self.shacl_format.get()
+			self._save_config_info(file, "shacl", self.shacl_format.get())
+			self.datahandler.load_shacl_file()
+
+	@safe_gui_call(title="Error loading RDFS files")
+	def select_rdfs_files(self) -> None:
+		initial_dir = self._load_dir_from_config("rdfs")
+		files = filedialog.askopenfilenames(initialdir=initial_dir, title="Select RDFS files")
+		if files:
+			filelist = list(files)
+			self.datahandler.rdfs_files = filelist
+			self.rdfs_var.set(f"{len(self.datahandler.rdfs_files)} files selected")
+			self._save_config_info(filelist[0], "rdfs")
+			self.datahandler.load_rdfs_files()
+
+	@safe_gui_call(title="Error loading datatype context file")
+	def select_datatype_file(self) -> None:
+		initial_dir = self._load_dir_from_config("datatypes")
+		file = filedialog.askopenfilename(initialdir=initial_dir, title="Select context file for datatype enrichment")
+		if file:
+			self.datahandler.datatype_file = file
+			self.datatype_var.set(file)
+			self._save_config_info(file, "datatypes")
+			self.datahandler.load_datatypes()
+
+	def _prepare_data_graph(self) -> None:
+		if self.datahandler.data_graph is None:
+			return
+		
+		context_data = self.datahandler.datatypes if self.datahandler.datatype_file else None
+		self.validation_service.prepare_data_for_validation(self.datahandler.data_graph, self.datahandler.rdfs_graph, add_datatypes=self.add_datatypes_var.get(), context_data=context_data)
+
+	# Output methods
+
+	def _show_output_message(self, message: str) -> None:
+		self.output.config(state=tk.NORMAL)
+		self.output.insert(tk.END, message + "\n")
+		self.output.see(tk.END)
+		self.output.config(state=tk.DISABLED)
+
 
 	def show_namespace_report(self):
 		graphs = {
@@ -355,108 +510,8 @@ class CIMShaclGUI:
 		text_area.config(state=tk.DISABLED)
 		text_area.pack(padx=10, pady=10)
 
-
-	def _save_config_info(self, filestr: str, dataset: str, format: Optional[str] = None) -> None:
-		if format:
-			self.file_config[dataset]["format"] = format
-		self.file_config[dataset]["last_directory"] = str(Path(filestr).parent)
-		save_json(self.file_config, FILE_CONFIG_PATH)
-
-	def load_dir_from_config(self, dataset: str) -> str:
-		if self.file_config and dataset in self.file_config:
-			return self.file_config[dataset].get("last_directory", str(Path.home()))
-		return str(Path.home())
-	
-	def _check_thread(self, thread: threading.Thread) -> None:
-		if thread.is_alive():
-			self.root.after(100, lambda: self._check_thread(thread))
-		else:
-			self.loading_window.close()
-
-	def select_data_files(self) -> None:
-		initial_dir = self.load_dir_from_config("data")
-		files = filedialog.askopenfilenames(initialdir=initial_dir, title="Select data files")
-		
-		if not files:
-			return
-		
-		filelist = list(files)
-		self.datahandler.data_files = filelist
-		self.data_var.set(f"{len(self.datahandler.data_files)} files selected")
-		self.datahandler.data_format = self.data_format.get()
-		self._save_config_info(filelist[0], "data", self.data_format.get())
-
-		self.loading_window = LoadingDialog(self.root)	# The data files may be large so a progress dialog is shown while loading. 
-		thread = threading.Thread(target=self.datahandler.load_data_files, daemon=True)
-		thread.start()
-		self._check_thread(thread)
-
-	def select_shacl_file(self) -> None:
-		initial_dir = self.load_dir_from_config("shacl")
-		file = filedialog.askopenfilename(initialdir=initial_dir, title="Select shacl file")
-		if file:
-			self.datahandler.shacl_file = file
-			self.shacl_var.set(file)
-			self.datahandler.shacl_format = self.shacl_format.get()
-			self._save_config_info(file, "shacl", self.shacl_format.get())
-			self.datahandler.load_shacl_file()
-
-	def select_rdfs_files(self) -> None:
-		initial_dir = self.load_dir_from_config("rdfs")
-		files = filedialog.askopenfilenames(initialdir=initial_dir, title="Select RDFS files")
-		if files:
-			filelist = list(files)
-			self.datahandler.rdfs_files = filelist
-			self.rdfs_var.set(f"{len(self.datahandler.rdfs_files)} files selected")
-			self._save_config_info(filelist[0], "rdfs")
-			self.datahandler.load_rdfs_files()
-
-	def select_datatype_file(self) -> None:
-		initial_dir = self.load_dir_from_config("datatypes")
-		file = filedialog.askopenfilename(initialdir=initial_dir, title="Select context file for datatype enrichment")
-		if file:
-			self.datahandler.datatype_file = file
-			self.datatype_var.set(file)
-			self._save_config_info(file, "datatypes")
-			self.datahandler.load_datatypes()
-
-	def start_validation(self) -> None:
-		top = tk.Toplevel(self.root)
-		top.title("Run output")
-		top.geometry(DEFAULT_OUTPUT_GEOMETRY)
-		top.minsize(*DEFAULT_OUTPUT_MIN_SIZE)
-
-		progress = ttk.Progressbar(top, mode="indeterminate")
-		progress.pack(fill="x", padx=10, pady=(0, 10))
-
-		frame = tk.Frame(top)
-		frame.pack(fill="both", expand=True, padx=10, pady=10)
-		self.output = tk.Text(frame, wrap=tk.WORD, font=OUTPUT_FONT, bg="#f0f0f0", fg="#202020", insertbackground="#202020", relief=tk.SUNKEN, borderwidth=2)
-		self.output.pack(fill="both", pady=5)#expand=True)
-		self.output.config(state=tk.DISABLED)
-
-		try:
-			self._show_output_message("Running SHACL validation...\n")
-			self._prepare_data_graph()
-			self._report_focus_nodes(top)
-			self._process_shacl_validation_async(top, progress)
-		except Exception as e:
-			self._show_output_message(f"An error occurred:\n {str(e)}")
-
-	def _show_output_message(self, message: str) -> None:
-		self.output.config(state=tk.NORMAL)
-		self.output.insert(tk.END, message + "\n")
-		self.output.see(tk.END)
-		self.output.config(state=tk.DISABLED)
-
-	def _prepare_data_graph(self) -> None:
-		if self.datahandler.data_graph is None:
-			return
-		
-		context_data = self.datahandler.datatypes if self.datahandler.datatype_file else None
-		self.validation_service.prepare_data_for_validation(self.datahandler.data_graph, self.datahandler.rdfs_graph, add_datatypes=self.add_datatypes_var.get(), context_data=context_data)
 			
-	def _report_focus_nodes(self, top: tk.Toplevel) -> None:
+	def _report_focus_nodes(self) -> None:
 		summary = self.validation_service.summarize_focus_nodes(self.datahandler.data_graph, self.datahandler.shacl_graph)
 		if summary is None:
 			return
@@ -467,29 +522,64 @@ class CIMShaclGUI:
 		)
 		self._show_output_message(focus_message)
 
-	def _process_shacl_validation_async(self, top, progress):
-		progress.start()
+
+	def start_validation(self) -> None:
+		self.validation_dialog = ProgressTimerDialog(self.root, title="Running SHACL validation...", message="Large graphs may take a while")
+		self.validation_dialog.start()
+		self.validation_dialog.top.geometry(DEFAULT_OUTPUT_GEOMETRY)
+		self.validation_dialog.top.minsize(*DEFAULT_OUTPUT_MIN_SIZE)
+
+		frame = tk.Frame(self.validation_dialog.top)
+		frame.pack(fill="both", expand=True, padx=10, pady=10)
+		self.output = tk.Text(frame, wrap=tk.WORD, font=OUTPUT_FONT, bg="#f0f0f0", fg="#202020", insertbackground="#202020", relief=tk.SUNKEN, borderwidth=2)
+		self.output.pack(fill="both", pady=5)
+		self.output.config(state=tk.DISABLED)
+
+		try:
+			self._prepare_data_graph()
+			self._report_focus_nodes()
+			self._process_shacl_validation_async()
+		except Exception as e:
+			self._show_output_message(f"An error occurred:\n {str(e)}")
+
+
+	def _check_validation_queue(self):
+		try:
+			status, payload = self.validation_queue.get_nowait()
+
+			if status == "done":
+				self._on_validation_done(payload)
+			else:
+				self._on_validation_error(payload)
+
+		except Exception:
+			# nothing yet → check again in 100ms
+			self.validation_dialog.top.after(100, self._check_validation_queue)
+
+	def _process_shacl_validation_async(self):
+		self.validation_queue = queue.Queue()
 
 		def worker():
+
 			try:
 				result = self.validation_service.validate_graphs(
 					self.datahandler.data_graph,
 					self.datahandler.shacl_graph,
 					self.datahandler.rdfs_graph
 				)
-
-				# Pass result back to UI thread
-				top.after(0, lambda: self._on_validation_done(top, progress, result))
+				self.validation_queue.put(("done", result))
 
 			except Exception as e:
-				top.after(0, lambda: self._on_validation_error(top, progress, e))
+				self.validation_queue.put(("error", e))
 
 		threading.Thread(target=worker, daemon=True).start()
+		self._check_validation_queue()
 
 
-	def _on_validation_done(self, top, progress, result):
-		progress.stop()
-		progress.destroy()
+	def _on_validation_done(self, result):
+
+		if hasattr(self, "validation_dialog") and self.validation_dialog:
+			self.validation_dialog.stop()
 
 		if result is None:
 			self._show_output_message("Data graph or SHACL graph not loaded.")
@@ -497,7 +587,7 @@ class CIMShaclGUI:
 
 		graph_count = len(self.datahandler.data_graph) if self.datahandler.data_graph else 0
 
-		self._show_output_message(f"SHACL validation performed on {graph_count} triples.")
+		self._show_output_message(f"SHACL validation completed on {graph_count} triples.")
 		self._show_output_message(f"Conforms: {result.conforms}")
 		self._show_output_message(" ")	# Add some spacing before summary of results.
 
@@ -521,41 +611,13 @@ class CIMShaclGUI:
 				write_shacl_violations_to_csv(csv_result, csv_output_path)
 				self._show_output_message(f"Validation report saved as CSV to: {csv_output_path}")
 
-	def _on_validation_error(self, top, progress, error):
-		progress.stop()
-		progress.destroy()
+	def _on_validation_error(self, error):
+		if hasattr(self, "validation_dialog") and self.validation_dialog:
+			self.validation_dialog.stop()
+
 		self._show_output_message(f"An error occurred:\n{str(error)}")
 		
-	def _run_shacl_validation(self, top: tk.Toplevel) -> None:
-		result = self.validation_service.validate_graphs(self.datahandler.data_graph, self.datahandler.shacl_graph, self.datahandler.rdfs_graph)
-		if result is None:
-			self._show_output_message("Data graph or SHACL graph not loaded.")
-			return
-
-		graph_count = len(self.datahandler.data_graph) if self.datahandler.data_graph else 0
-		self._show_output_message(f"SHACL validation performed on {graph_count} triples.\n")
-		self._show_output_message(f"Conforms: {result.conforms}\n")
-		self._show_output_message(" \n")
-
-		if result.summary_validation_results:
-			message = "Summary of validation results (error type and count):\n"
-			for error_type, count in result.summary_validation_results:
-				message += f"{error_type}: {count}\n"
-
-			self._show_output_message(message)
-
-		if result.results_graph is not None and SH.result in result.results_graph.predicates():	# If there are any results to report save it to file.
-			output_path = self.validation_output_path.get().strip() or DEFAULT_VALIDATION_OUTPUT
-			output_format = self.validation_output_format.get()
-			saved = self.validation_service.serialize_results(result.results_graph, output_path, output_format)
-			if saved:
-				self._show_output_message(f"Validation report saved to: {output_path}")
-
-			if self.csv_report_var.get():
-				csv_result = collect_violations(result.results_graph)
-				csv_output_path = output_path.rsplit(".", 1)[0] + ".csv"
-				write_shacl_violations_to_csv(csv_result, csv_output_path)
-				self._show_output_message(f"Validation report saved as CSV to: {csv_output_path}")
+	# Debugging methods kept in case they are needed again in the future, but not currently used in the GUI.
 
 	def _graph_counts_for_debugging(self, top: tk.Toplevel) -> None:
 		data_count = len(self.datahandler.data_graph) if self.datahandler.data_graph else 0
