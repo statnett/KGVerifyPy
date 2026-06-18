@@ -2,7 +2,6 @@
 
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox, scrolledtext
-import time
 import threading
 import queue
 from typing import Callable, Optional
@@ -12,10 +11,8 @@ from kgverifypy.file_handling import load_json, save_json
 from kgverifypy.validation_service import ShaclValidationService
 from kgverifypy.csv_utilities import collect_violations, write_shacl_violations_to_csv
 from kgverifypy.data_handler import DataHandler
-from kgverifypy.namespaces import compare_namespaces
-import logging
-
-logger = logging.getLogger("primary")
+from kgverifypy.namespaces import compare_namespaces, all_namespaces_match, format_namespace_matrix
+from kgverifypy.gui_utilites import CollapsibleSection, ProgressTimerDialog, safe_gui_call, safe_gui_thread
 
 FILE_CONFIG_PATH = Path(__file__).parent / "file_config.json"
 DEFAULT_MAIN_GEOMETRY = "760x700"
@@ -23,153 +20,8 @@ DEFAULT_MAIN_MIN_SIZE = (680, 600)
 DEFAULT_OUTPUT_GEOMETRY = "760x560"
 DEFAULT_OUTPUT_MIN_SIZE = (680, 420)
 DEFAULT_VALIDATION_OUTPUT = "../validation_results.json"
-UI_FONT = ("TkDefaultFont", 14)	# 12
-OUTPUT_FONT = ("TkDefaultFont", 16) # 13
-
-
-def safe_gui_call(title="Error"):
-    def decorator(func):
-        def wrapper(self, *args, **kwargs):
-            try:
-                return func(self, *args, **kwargs)
-            except Exception as e:
-                # Full traceback goes to log
-                logger.exception("Unhandled exception in GUI action")
-
-                # Short message to user (must be in main thread)
-                self.root.after(
-                    0,
-                    lambda e=e: messagebox.showerror(title, str(e))
-                )
-        return wrapper
-    return decorator
-
-
-def safe_gui_thread(title="Error"):
-    def decorator(func):
-        def wrapper(self, *args, **kwargs):
-            def run():
-                try:
-                    func(self, *args, **kwargs)
-                except Exception as e:
-                    logger.exception("Unhandled exception in background task")
-
-                    self.root.after(
-                        0,
-                        lambda e=e: messagebox.showerror(title, str(e))
-                    )
-
-            thread = threading.Thread(target=run, daemon=True)
-            thread.start()
-            return thread
-
-        return wrapper
-    return decorator
-
-
-class CollapsibleSection(ttk.Frame):
-	"""Make a collapsible section."""
-	def __init__(self, parent: ttk.Frame, title: str = "Section") -> None:
-		super().__init__(parent)
-
-		self.title = title
-		self.open = False
-		self.style = ttk.Style(self)
-		self.style.configure("Toolbutton", font=UI_FONT)
-
-		self.header_btn = ttk.Button(
-			self,
-			text=f"[+] {self.title}",
-			command=self.toggle,
-			style="Toolbutton",
-		)
-		self.header_btn.pack(fill="x")
-
-		self.content = ttk.Frame(self)
-		self.content.columnconfigure(0, weight=1)
-
-	def toggle(self) -> None:
-		"""Toggle the visibility of the content frame and update the header button text accordingly."""
-		self.open = not self.open
-
-		if self.open:
-			self.header_btn.config(text=f"[-] {self.title}")
-			self.content.pack(fill="x", padx=10, pady=5)
-		else:
-			self.header_btn.config(text=f"[+] {self.title}")
-			self.content.forget()
-
-
-class ProgressTimerDialog:
-	def __init__(self, parent, title="Processing...", message=None):
-		self.top = tk.Toplevel(parent)
-		self.top.title(title)
-		self.top.geometry("320x140")
-		self.top.transient(parent)
-		self.top.grab_set()
-
-		if message:
-			ttk.Label(self.top, text=message).pack(pady=(8, 4))
-
-		self.progress = ttk.Progressbar(
-			self.top,
-			mode="indeterminate",
-			length=260
-		)
-		self.progress.pack(pady=5)
-
-		self.time_label = ttk.Label(self.top, text="Elapsed: 0.0 s")
-		self.time_label.pack(pady=5)
-
-		# internal state
-		self._job = None
-		self.start_time = time.time()
-
-	# ---------- TIMER ----------
-	def _format_elapsed(self):
-		elapsed = time.time() - self.start_time
-
-		if elapsed < 60:
-			return f"Elapsed: {elapsed:.1f} s"
-		elif elapsed < 3600:
-			mins = int(elapsed // 60)
-			return f"Elapsed: {mins} min {int(elapsed % 60)} s"
-		else:
-			hours = int(elapsed // 3600)
-			mins = int((elapsed % 3600) // 60)
-			return f"Elapsed: {hours} h {mins} min"
-
-	def _tick(self):
-		self.time_label.config(text=self._format_elapsed())
-		self._job = self.top.after(100, self._tick)
-
-	# ---------- CONTROL ----------
-	def start(self):
-		self.start_time = time.time()
-		self.progress.start(10)
-		self._tick()
-
-	def stop(self):
-		"""Stops timer and progress WITHOUT closing window"""
-		self.progress.stop()
-
-		if self._job:
-			self.top.after_cancel(self._job)
-			self._job = None
-
-		# One final update so the time freezes correctly
-		if self.start_time:
-			self.time_label.config(text=self._format_elapsed())
-
-	def close(self):
-		"""Stops everything and closes window"""
-		self.stop()
-		self.top.destroy()
-
-	def get_elapsed_text(self):
-		if self.start_time:
-			return self._format_elapsed()
-		return "Elapsed: 0.0 s"
+UI_FONT = ("TkDefaultFont", 12)
+OUTPUT_FONT = ("TkDefaultFont", 13)
 
 
 class CIMShaclGUI:
@@ -339,7 +191,7 @@ class CIMShaclGUI:
 		return row +5
 	
 	def _add_collapsible_section(self, frame: ttk.Frame, start_row: int, title: str, builder_fn: Callable[[ttk.Frame, int], int]) -> int:
-		""""Add a collapsible section to the GUI and use the provided builder function to populate its content.
+		"""Add a collapsible section to the GUI and use the provided builder function to populate its content.
 		
 		Parameters:
 			frame (ttk.Frame): The parent frame to build the section in.
@@ -628,54 +480,6 @@ class CIMShaclGUI:
 		)
 		self._show_output_message(message)
 
-
-def all_namespaces_match(report: list[dict]) -> bool:
-	"""Check if all namespaces match across graphs based on the report generated by compare_namespaces.
-	
-	Parameters:
-		report (list): The report generated by compare_namespaces, which is a list of dictionaries containing namespace comparison results.
-
-	Returns:
-		bool: True if all namespaces match (i.e., no missing namespaces in any graph), False otherwise.
-	"""
-	return all(len(row["missing"]) == 0 for row in report)
-
-
-def format_namespace_matrix(report: list[dict], graph_names: list[str]) -> str:
-	"""Format the namespace comparison report into a readable matrix format for display.
-	
-	Parameters:
-		report (list): The report generated by kgverifypy.namespaces.compare_namespaces, which is a list of dictionaries containing namespace comparison results.
-		graph_names (list): A list of graph names corresponding to the graphs compared in the report, used for labeling the columns in the matrix.
-
-	Returns:
-		str: A formatted string representing the namespace comparison matrix.
-	"""
-	max_uri_len = max(len(row["uri"]) for row in report) if report else 0
-	col_width = 10
-
-	lines = []
-
-	header = "Namespace".ljust(max_uri_len) + " | " + " | ".join(name.upper().center(col_width) for name in graph_names)
-	lines.append(header)
-	lines.append("-" * len(header))
-
-	for row in report:
-		if row["missing"]:
-			uri_part = row["uri"].ljust(max_uri_len)
-
-			cols = []
-			for name in graph_names:
-				prefix = row["presence"].get(name)
-				if prefix:
-					cols.append(f"✔ {prefix}".center(col_width))
-				else:
-					cols.append("✘".center(col_width))
-
-			line = uri_part + " | " + " | ".join(cols)
-			lines.append(line)	
-
-	return "\n".join(lines)
 
 
 if __name__ == "__main__":
