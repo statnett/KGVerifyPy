@@ -101,8 +101,8 @@ class CIMShaclGUI:
 		row = 0
 
 		# row gets incremented in the section methods so that the next section is placed correctly below the previous one.
-		row = self._file_selection_section(frame, row, "Data", self.data_format, self.data_var, [("CIMXML", "cimxml"), ("RDF/XML", "xml"), ("JSON-LD", "json-ld"), ("TRIG", "trig"), ("TTL", "ttl")], self.select_data_files)
-		row = self._file_selection_section(frame, row, "SHACL", self.shacl_format, self.shacl_var, [("TTL", "ttl"), ("RDF/XML", "xml")], self.select_shacl_file)
+		row = self._file_selection_section(frame, row, "Data", self.data_format, self.data_var, [("CIMXML", "cimxml"), ("RDF/XML", "xml"), ("JSON-LD", "json-ld"), ("TRIG", "trig"), ("TTL", "ttl")], self._select_data_files)
+		row = self._file_selection_section(frame, row, "SHACL", self.shacl_format, self.shacl_var, [("TTL", "ttl"), ("RDF/XML", "xml")], self._select_shacl_file)
 		row = self._add_collapsible_section(frame, row, "Add RDFS files", self._rdfs_section)
 		row = self._add_collapsible_section(frame, row, "Datatype enrichment options", self._datatype_section)
 		
@@ -146,7 +146,7 @@ class CIMShaclGUI:
 			int: The next row index after the section components, to allow for correct placement of subsequent sections.
 		"""
 		row = start_row
-		row = self._add_file_picker_row(frame, row, self.rdfs_var, self.select_rdfs_files)		
+		row = self._add_file_picker_row(frame, row, self.rdfs_var, self._select_rdfs_files)		
 		return row +1
 
 	def _datatype_section(self, frame: ttk.Frame, start_row: int) -> int:
@@ -165,7 +165,7 @@ class CIMShaclGUI:
 		check.grid(row=row, column=0, sticky="w")
 		
 		ttk.Label(frame, text="Custom context file:").grid(row=row +1, column=0, sticky="w", pady=(10, 6))
-		row = self._add_file_picker_row(frame, row +1, self.datatype_var, self.select_datatype_file)
+		row = self._add_file_picker_row(frame, row +1, self.datatype_var, self._select_datatype_file)
 
 		return row +1
 	
@@ -245,16 +245,6 @@ class CIMShaclGUI:
 
 	# Data handling methods
 
-	def _save_config_info(self, filestr: str, dataset: str, format: Optional[str] = None) -> None:
-		if format:
-			self.file_config[dataset]["format"] = format
-		self.file_config[dataset]["last_directory"] = str(Path(filestr).parent)
-		save_json(self.file_config, FILE_CONFIG_PATH)
-
-	def _load_dir_from_config(self, dataset: str) -> str:
-		if self.file_config and dataset in self.file_config:
-			return self.file_config[dataset].get("last_directory", str(Path.home()))
-		return str(Path.home())
 	
 	def _check_thread(self, thread: threading.Thread) -> None:
 		if thread.is_alive():
@@ -263,11 +253,11 @@ class CIMShaclGUI:
 			self.loading_window.close()
 
 	@safe_gui_thread(title="Error loading data files")
-	def _load_data_files_thread(self):
+	def _load_data_files_thread(self) -> None:
 		self.datahandler.load_data_files()
 		
-	def select_data_files(self) -> None:
-		initial_dir = self._load_dir_from_config("data")
+	def _select_data_files(self) -> None:
+		initial_dir = _load_dir_from_config(self.file_config, "data")
 		files = filedialog.askopenfilenames(initialdir=initial_dir, title="Select data files")
 		
 		if not files:
@@ -277,7 +267,7 @@ class CIMShaclGUI:
 		self.datahandler.data_files = filelist
 		self.data_var.set(f"{len(self.datahandler.data_files)} files selected")
 		self.datahandler.data_format = self.data_format.get()
-		self._save_config_info(filelist[0], "data", self.data_format.get())
+		_save_config_info(self.file_config, filelist[0], "data", self.data_format.get())
 
 		self.loading_window = ProgressTimerDialog(self.root, title="Loading data files...", message="Large files may take a while")
 		self.loading_window.start()
@@ -286,35 +276,35 @@ class CIMShaclGUI:
 		self._check_thread(thread)
 
 	@safe_gui_call(title="Error loading SHACL file")
-	def select_shacl_file(self) -> None:
-		initial_dir = self._load_dir_from_config("shacl")
+	def _select_shacl_file(self) -> None:
+		initial_dir = _load_dir_from_config(self.file_config, "shacl")
 		file = filedialog.askopenfilename(initialdir=initial_dir, title="Select shacl file")
 		if file:
 			self.datahandler.shacl_file = file
 			self.shacl_var.set(file)
 			self.datahandler.shacl_format = self.shacl_format.get()
-			self._save_config_info(file, "shacl", self.shacl_format.get())
+			_save_config_info(self.file_config, file, "shacl", self.shacl_format.get())
 			self.datahandler.load_shacl_file()
 
 	@safe_gui_call(title="Error loading RDFS files")
-	def select_rdfs_files(self) -> None:
-		initial_dir = self._load_dir_from_config("rdfs")
+	def _select_rdfs_files(self) -> None:
+		initial_dir = _load_dir_from_config(self.file_config, "rdfs")
 		files = filedialog.askopenfilenames(initialdir=initial_dir, title="Select RDFS files")
 		if files:
 			filelist = list(files)
 			self.datahandler.rdfs_files = filelist
 			self.rdfs_var.set(f"{len(self.datahandler.rdfs_files)} files selected")
-			self._save_config_info(filelist[0], "rdfs")
+			_save_config_info(self.file_config, filelist[0], "rdfs")
 			self.datahandler.load_rdfs_files()
 
 	@safe_gui_call(title="Error loading datatype context file")
-	def select_datatype_file(self) -> None:
-		initial_dir = self._load_dir_from_config("datatypes")
+	def _select_datatype_file(self) -> None:
+		initial_dir = _load_dir_from_config(self.file_config, "datatypes")
 		file = filedialog.askopenfilename(initialdir=initial_dir, title="Select context file for datatype enrichment")
 		if file:
 			self.datahandler.datatype_file = file
 			self.datatype_var.set(file)
-			self._save_config_info(file, "datatypes")
+			_save_config_info(self.file_config, file, "datatypes")
 			self.datahandler.load_datatypes()
 
 	def _prepare_data_graph(self) -> None:
@@ -480,6 +470,40 @@ class CIMShaclGUI:
 		)
 		self._show_output_message(message)
 
+
+def _save_config_info(file_config: dict[str, dict[str, str]], filestr: str, dataset: str, format: Optional[str] = None) -> None:
+	"""Helper function to save the last used directory and format for a given dataset type (data, shacl, rdfs, datatypes) to the file configuration.
+	
+	Parameters:
+		file_config (dict[str, dict[str, str]]): The current file configuration dictionary to update.
+		filestr (str): The file path string from which to extract the directory to save in the config.
+		dataset (str): The dataset type key to update in the config (e.g., "data", "shacl", "rdfs", "datatypes").
+		format (Optional[str]): The format string to save in the config for the given dataset type. If None, the format will not be updated in the config.
+	"""
+	# Will recreate the file_config file the first time the gui is used, if it is accidentally deleted or corrupted
+	if file_config is None:
+		file_config = {}
+	if not file_config.get(dataset):
+		file_config[dataset] = {}
+
+	if format:
+		file_config[dataset]["format"] = format
+	file_config[dataset]["last_directory"] = str(Path(filestr).parent)
+	save_json(file_config, FILE_CONFIG_PATH)
+
+def _load_dir_from_config(file_config: dict[str, dict[str, str]], dataset: str) -> str:
+	"""Helper function to load the last used directory for a given dataset type from the file configuration.
+	
+	Parameters:
+		file_config (dict[str, dict[str, str]]): The file configuration dictionary to read from.
+		dataset (str): The dataset type key to look up in the config (e.g., "data", "shacl", "rdfs", "datatypes").
+
+	Returns:
+		str: The last used directory for the given dataset type if available in the config, otherwise the user's home directory.
+	"""
+	if file_config and dataset in file_config:
+		return file_config[dataset].get("last_directory", str(Path.home()))
+	return str(Path.home())
 
 
 if __name__ == "__main__":

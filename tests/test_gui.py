@@ -1,11 +1,13 @@
 import pytest
 from unittest.mock import Mock, MagicMock, patch, call
 import tkinter as tk
+from pathlib import Path
 
 from src.kgverifypy.gui import (
+    FILE_CONFIG_PATH,
     CIMShaclGUI,
-    all_namespaces_match, 
-    format_namespace_matrix
+    _save_config_info,
+    _load_dir_from_config
 )
 
 PATCH_LOCATION = "src.kgverifypy.gui"
@@ -82,8 +84,8 @@ def test_build_gui_callssectionsinorder(frame_mock: MagicMock) -> None:
     gui._build_gui()
 
     gui._file_selection_section.assert_has_calls([
-        call(mock_frame, 0, "Data", gui.data_format, gui.data_var, [("CIMXML", "cimxml"), ("RDF/XML", "xml"), ("JSON-LD", "json-ld"), ("TRIG", "trig"), ("TTL", "ttl")], gui.select_data_files),
-        call(mock_frame, 1, "SHACL", gui.shacl_format, gui.shacl_var, [("TTL", "ttl"), ("RDF/XML", "xml")], gui.select_shacl_file)
+        call(mock_frame, 0, "Data", gui.data_format, gui.data_var, [("CIMXML", "cimxml"), ("RDF/XML", "xml"), ("JSON-LD", "json-ld"), ("TRIG", "trig"), ("TTL", "ttl")], gui._select_data_files),
+        call(mock_frame, 1, "SHACL", gui.shacl_format, gui.shacl_var, [("TTL", "ttl"), ("RDF/XML", "xml")], gui._select_shacl_file)
     ])
     gui._add_collapsible_section.assert_has_calls([
         call(mock_frame, 2, "Add RDFS files", gui._rdfs_section),
@@ -136,7 +138,7 @@ def test_rdfs_section() -> None:
 
     result = gui._rdfs_section(parent, 0)
 
-    gui._add_file_picker_row.assert_called_once_with(parent, 0, gui.rdfs_var, gui.select_rdfs_files)
+    gui._add_file_picker_row.assert_called_once_with(parent, 0, gui.rdfs_var, gui._select_rdfs_files)
     assert result == 2
 
 # ._datatype_section
@@ -153,7 +155,7 @@ def test_datatype_section() -> None:
         mock_check.assert_called_once_with(parent, text="Add datatypes", variable=gui.add_datatypes_var)
         mock_check.return_value.grid.assert_called_once()
 
-    gui._add_file_picker_row.assert_called_once_with(parent, 1, gui.datatype_var, gui.select_datatype_file)
+    gui._add_file_picker_row.assert_called_once_with(parent, 1, gui.datatype_var, gui._select_datatype_file)
     assert result == 3
 
 
@@ -231,7 +233,87 @@ def test_add_file_picker_row() -> None:
 
     assert result == 1
 
+# Unit tests _save_config_info
+@pytest.mark.parametrize(
+          "format", [None, "cimxml", "json"]
+)
+@patch(f"{PATCH_LOCATION}.save_json")
+def test_save_config_info(mock_save_json: MagicMock, format: str) -> None:
+    file_config = {
+        "data": {"last_directory": "/old/data/dir", "format": "cimxml"},
+        "shacl": {"last_directory": "/old/shacl/dir", "format": "ttl"}
+    }
+    test_filestr = "somewhere/testfile.ttl"
+    original_format = file_config["shacl"]["format"]
+    
+    _save_config_info(file_config, test_filestr, "shacl", format)
 
+    assert file_config["data"]["last_directory"] == "/old/data/dir"  # Data config should not be modified
+    assert file_config["data"]["format"] == "cimxml"  # Data format should not be modified
+    assert file_config["shacl"]["last_directory"] == "somewhere"
+    assert file_config["shacl"]["format"] == (format if format else original_format)
+    mock_save_json.assert_called_once_with(file_config, FILE_CONFIG_PATH)
+
+@patch(f"{PATCH_LOCATION}.save_json")
+def test_save_config_info_nodirpath(mock_save_json: MagicMock) -> None:
+    file_config = {
+        "data": {"last_directory": "/old/data/dir", "format": "cimxml"},
+        "shacl": {"last_directory": "/old/shacl/dir", "format": "ttl"}
+    }
+    test_filestr = "testfile.ttl"
+    original_format = file_config["shacl"]["format"]
+    
+    _save_config_info(file_config, test_filestr, "shacl")
+
+    assert file_config["shacl"]["last_directory"] == "."
+    assert file_config["shacl"]["format"] == original_format
+    mock_save_json.assert_called_once_with(file_config, FILE_CONFIG_PATH)
+
+@pytest.mark.parametrize(
+        "file_config",
+        [
+            pytest.param({}, id="empty config"),
+            pytest.param({"shacl": {}}, id="missing shacl config"),
+            pytest.param({"shacl": {"format": "xml"}}, id="missing last_directory key"),
+            pytest.param({"shacl": {"last_directory": "/old/dir"}}, id="missing format key"),
+        ]
+)
+@patch(f"{PATCH_LOCATION}.save_json")
+def test_save_config_info_emptyconfig(mock_save_json: MagicMock, file_config: dict[str, dict[str, str]]) -> None:
+    test_filestr = "somewhere/testfile.ttl"
+    
+    _save_config_info(file_config, test_filestr, "shacl", "ttl")
+
+    assert file_config["shacl"]["last_directory"] == "somewhere"
+    assert file_config["shacl"]["format"] == "ttl"
+    mock_save_json.assert_called_once_with(file_config, FILE_CONFIG_PATH)
+
+@patch(f"{PATCH_LOCATION}.save_json")
+def test_save_config_info_noneconfig(mock_save_json: MagicMock) -> None:
+    test_filestr = "somewhere/testfile.ttl"
+    
+    # Pylance silenced to test wrong input
+    _save_config_info(None, test_filestr, "shacl", "ttl") # type: ignore
+
+    mock_save_json.assert_called_once_with({"shacl": {"last_directory": "somewhere", "format": "ttl"}}, FILE_CONFIG_PATH)
+
+# Unit tests _load_dir_from_config
+@pytest.mark.parametrize(
+    "file_config, dataset, expected",
+    [
+        pytest.param({"data": {"last_directory": "/data/dir"}}, "data", "/data/dir", id="data dir"),
+        pytest.param({"shacl": {"last_directory": "/shacl/dir"}}, "shacl", "/shacl/dir", id="shacl dir"),
+        pytest.param({}, "rdfs", str(Path.home()), id="empty config"),
+        pytest.param({"rdfs": {}}, "rdfs", str(Path.home()), id="missing rdfs config"),
+        pytest.param({"rdfs": {"format": "rdf"}}, "rdfs", str(Path.home()), id="missing last_directory key"),
+        pytest.param({"rdfs": {"last_directory": ""}}, "rdfs", "", id="empty last_directory"),
+        pytest.param(None, "rdfs", str(Path.home()), id="none config"),
+        pytest.param({"rdfs": {"last_directory": 123}}, "rdfs", 123, id="invalid last_directory")
+    ],
+)
+def test_load_dir_from_config(file_config: dict[str, dict[str, str]] | None, dataset: str, expected: str | int) -> None:
+    # Pylance silenced to test wrong input
+    assert _load_dir_from_config(file_config, dataset) == expected  # type: ignore
 
 if __name__ == "__main__":
     pytest.main()
