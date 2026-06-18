@@ -58,9 +58,6 @@ def safe_gui_thread(title="Error"):
                         0,
                         lambda e=e: messagebox.showerror(title, str(e))
                     )
-                finally:
-                    if hasattr(self, "loading_window"):
-                        self.root.after(0, self.loading_window.stop)
 
             thread = threading.Thread(target=run, daemon=True)
             thread.start()
