@@ -1,6 +1,21 @@
 from rdflib import Graph
 from kgverifypy.file_handling import make_graphs_from, merge_trig_graphs, load_json
-from typing import Callable, TypeVar
+from typing import Callable, TypeVar, Optional
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class DatasetConfig:
+    title: str  # Title to display in the UI file entry for the data
+    config_key: str # Key to use when loading and saving the file path in the file_config
+    multiple: bool  # Whether to allow multiple files to be selected
+    var_attr: str   # Name of the StringVar attribute in the GUI to update with the selected file(s)
+    set_method: str # Name of the method to call to set the file(s) in the DataHandler
+    load_method: str # Name of the method to call to load the file(s) in the DataHandler
+    format_attr: Optional[str] = None # Name of the attribute in the DataHandler to set the format
+    threaded: bool = False # Whether to load the file(s) in a separate thread
+    loading_title: str = "" # Title to display in the loading dialog when loading the file(s) in a separate thread
+    loading_message: str = "" # Message to display in the loading dialog when loading the file(s) in a separate thread
+
 
 T = TypeVar('T')
 

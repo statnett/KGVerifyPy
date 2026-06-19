@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import Mock, MagicMock, patch, call
+from unittest.mock import Mock, MagicMock, patch, call, ANY
 import tkinter as tk
 from pathlib import Path
 
@@ -7,7 +7,8 @@ from src.kgverifypy.gui import (
     FILE_CONFIG_PATH,
     CIMShaclGUI,
     _save_config_info,
-    _load_dir_from_config
+    _load_dir_from_config,
+    DATASET_SELECTORS
 )
 
 PATCH_LOCATION = "src.kgverifypy.gui"
@@ -232,6 +233,289 @@ def test_add_file_picker_row() -> None:
             button_mock.return_value.grid.assert_called_once()
 
     assert result == 1
+
+# .safe_execute
+@pytest.mark.parametrize("exception", [None, Exception("Test error")])
+@patch(f"{PATCH_LOCATION}.messagebox.showerror")
+def test_safe_execute_success(mock_showerror: MagicMock, exception: None | Exception, caplog: pytest.LogCaptureFixture) -> None:
+    gui = CIMShaclGUI()
+    func = Mock(side_effect=exception)
+    gui.root = Mock()
+    gui.root.after = Mock(side_effect=lambda delay, func: func())
+
+    gui._safe_execute(func, title="Error")
+
+    func.assert_called_once()
+    if exception is None:
+        mock_showerror.assert_not_called()
+        assert "Unhandled exception" not in caplog.text
+    else:
+        assert "Unhandled exception" in caplog.text
+        mock_showerror.assert_called_once_with("Error", str(exception))
+
+
+# ._select_files_by
+@pytest.mark.parametrize("dataset_name", ["data", "shacl", "rdfs", "datatypes", "unknown"])
+@patch(f"{PATCH_LOCATION}.filedialog.askopenfilename")
+@patch(f"{PATCH_LOCATION}.filedialog.askopenfilenames")
+@patch(f"{PATCH_LOCATION}._load_dir_from_config", return_value="last_dir")
+def test_select_files_by(mock_load_dir: MagicMock, mock_askopenfilenames: MagicMock, mock_askopenfilename: MagicMock, dataset_name: str) -> None:
+    gui = CIMShaclGUI()
+    gui.file_config = Mock(return_value="last_dir")
+    gui._run_threaded = Mock()
+    gui._safe_execute = Mock()
+    mock_files = "files"
+    mock_askopenfilename.return_value = mock_files
+    mock_askopenfilenames.return_value = mock_files
+
+    gui._select_files_by(dataset_name)
+
+    if dataset_name not in DATASET_SELECTORS:
+        mock_load_dir.assert_not_called()
+        mock_askopenfilename.assert_not_called()
+        mock_askopenfilenames.assert_not_called()
+        gui._run_threaded.assert_not_called()
+        gui._safe_execute.assert_not_called()
+        return
+    
+    dataset = DATASET_SELECTORS[dataset_name]
+    mock_load_dir.assert_called_once_with(gui.file_config, dataset_name)
+    if dataset_name in ["rdfs", "data"]:
+        mock_askopenfilenames.assert_called_once_with(initialdir="last_dir", title=dataset.title)
+        mock_askopenfilename.assert_not_called()
+    elif dataset_name in ["shacl", "datatypes"]:
+        mock_askopenfilename.assert_called_once_with(initialdir="last_dir", title=dataset.title)
+        mock_askopenfilenames.assert_not_called()
+    
+    if dataset_name == "data":
+        gui._run_threaded.assert_called_once_with("data", mock_files, dataset)
+        gui._safe_execute.assert_not_called()
+        args, _ = gui._run_threaded.call_args
+        assert args[2] is dataset
+    elif dataset_name in ["shacl", "datatypes", "rdfs"]:
+        gui._safe_execute.assert_called_once_with(ANY, title=f"Error loading {dataset_name} files")
+        gui._run_threaded.assert_not_called()
+        
+
+@patch(f"{PATCH_LOCATION}.filedialog.askopenfilenames", return_value=())
+@patch(f"{PATCH_LOCATION}._load_dir_from_config")
+def test_select_files_by_nofilesretrieved(mock_load_dir: MagicMock, mock_askopenfilenames: MagicMock) -> None:
+    gui = CIMShaclGUI()
+    gui.file_config = Mock(return_value="last_dir")
+    gui._run_threaded = Mock()
+    gui._safe_execute = Mock()
+
+    gui._select_files_by("data")
+    mock_load_dir.assert_called_once_with(gui.file_config, "data")
+    mock_askopenfilenames.assert_called_once()
+    gui._run_threaded.assert_not_called()
+    gui._safe_execute.assert_not_called()
+
+
+@patch(f"{PATCH_LOCATION}.filedialog.askopenfilenames", return_value=("a", "b"))
+@patch(f"{PATCH_LOCATION}._load_dir_from_config")
+def test_select_files_by_filesretrievedcorrectly(mock_load_dir: MagicMock, mock_askopenfilenames: MagicMock) -> None:
+    gui = CIMShaclGUI()
+    gui.file_config = Mock(return_value="last_dir")
+    gui._run_threaded = Mock()
+    gui._safe_execute = Mock()
+
+    gui._select_files_by("data")
+    mock_load_dir.assert_called_once_with(gui.file_config, "data")
+    mock_askopenfilenames.assert_called_once()
+    args, _ = gui._run_threaded.call_args
+    assert isinstance(args[1], list)
+    assert args[1] == ["a", "b"]
+    gui._run_threaded.assert_called_once()
+    gui._safe_execute.assert_not_called()
+
+
+# ._execute_selection
+@patch(f"{PATCH_LOCATION}._save_config_info")
+def test_execute_selection_calls_load_method(mock_save_config: MagicMock) -> None:
+    dataset_config = DATASET_SELECTORS["data"]
+    gui = CIMShaclGUI()
+    gui.datahandler = Mock()
+    setattr(gui.datahandler, dataset_config.load_method, Mock())
+    setattr(gui.datahandler, dataset_config.set_method, Mock())
+
+    # mock attributes used via getattr
+    var_mock = Mock()
+    setattr(gui, dataset_config.var_attr, var_mock)
+
+    if dataset_config.format_attr:
+        format_var_mock = Mock()
+        setattr(gui, dataset_config.format_attr, format_var_mock)
+        format_var_mock.get.return_value = "cimxml"
+
+    gui.file_config = {}
+
+    files = "file1.txt"
+
+    gui._execute_selection(files, dataset_config)
+
+    # Assert
+    setter = getattr(gui.datahandler, dataset_config.set_method)
+    setter.assert_called_once_with(files, "cimxml")
+    getattr(gui.datahandler, dataset_config.load_method).assert_called_once()
+    var_mock.set.assert_called_once_with(files)
+    mock_save_config.assert_called_once_with(gui.file_config, "file1.txt", dataset_config.config_key, "cimxml")
+
+
+@pytest.mark.parametrize(
+    "key, files, expected_var_value",
+    [
+        pytest.param("data", "file1.txt", "file1.txt", id="data single file with format",),
+        pytest.param("shacl", "file1.txt", "file1.txt", id="shacl single file with format",),
+        pytest.param("rdfs", ["file1.txt", "file2.txt"], "2 files selected", id="rdfs multiple files no format",),
+        pytest.param("datatypes", "file1.txt", "file1.txt", id="datatypes single file no format",),
+        # Additional edge cases
+        pytest.param("data", ["file1.txt", "file2.txt"], "2 files selected", id="data multiple files with format",),
+        pytest.param("rdfs", ["file1.txt"], "file1.txt", id="one item in list",),
+    ],
+)
+@patch(f"{PATCH_LOCATION}._save_config_info")
+def test_execute_selection(mock_save_config: MagicMock, key: str, files: list[str]|str, expected_var_value: str) -> None:
+    dataset_config = DATASET_SELECTORS[key]
+
+    gui = CIMShaclGUI()
+    gui.datahandler = Mock()
+    setter_mock = Mock()
+    loader_mock = Mock()
+    setattr(gui.datahandler, dataset_config.set_method, setter_mock)
+    setattr(gui.datahandler, dataset_config.load_method, loader_mock)
+    var_mock = Mock()
+    setattr(gui, dataset_config.var_attr, var_mock)
+
+    fmt_value = None
+    if dataset_config.format_attr:
+        format_var_mock = Mock()
+        fmt_value = "cimxml"
+        format_var_mock.get.return_value = fmt_value
+        setattr(gui, dataset_config.format_attr, format_var_mock)
+
+    gui.file_config = {}
+
+    gui._execute_selection(files, dataset_config)
+
+    if fmt_value is not None:
+        setter_mock.assert_called_once_with(files, fmt_value)
+    else:
+        setter_mock.assert_called_once_with(files)
+
+    loader_mock.assert_called_once()
+    var_mock.set.assert_called_once_with(expected_var_value)
+    first = files[0] if isinstance(files, list) else files
+    mock_save_config.assert_called_once_with(gui.file_config, first, dataset_config.config_key, fmt_value)
+
+@patch(f"{PATCH_LOCATION}._save_config_info")
+def test_execute_selection_nofiles(mock_save_config: MagicMock) -> None:
+    dataset_config = DATASET_SELECTORS["data"]
+    gui = CIMShaclGUI()
+    gui.datahandler = Mock()
+    setattr(gui.datahandler, dataset_config.load_method, Mock())
+    setattr(gui.datahandler, dataset_config.set_method, Mock())
+    var_mock = Mock()
+    setattr(gui, dataset_config.var_attr, var_mock)
+
+    if dataset_config.format_attr:
+        format_var_mock = Mock()
+        setattr(gui, dataset_config.format_attr, format_var_mock)
+
+    gui.file_config = {}
+
+    files = []
+
+    with pytest.raises(IndexError, match="list index out of range"):
+        gui._execute_selection(files, dataset_config)
+
+    getattr(gui.datahandler, dataset_config.load_method).assert_not_called()
+    var_mock.set.assert_not_called()
+    mock_save_config.assert_not_called()
+
+# ._run_threaded
+@patch(f"{PATCH_LOCATION}.ProgressTimerDialog")
+@patch(f"{PATCH_LOCATION}.threading.Thread")
+def test_run_threaded(mock_thread: MagicMock, mock_progress: MagicMock) -> None:
+    gui = CIMShaclGUI()
+    gui.root = Mock()
+    gui._safe_execute = Mock()
+    gui._execute_selection = Mock()
+    dataset_config = DATASET_SELECTORS["data"]
+    files = "file1.txt"
+
+    gui._run_threaded("data", files, dataset_config)
+
+    mock_thread.assert_called_once_with(target=ANY, daemon=True)
+    mock_thread.return_value.start.assert_called_once()
+    task_func = mock_thread.call_args.kwargs["target"]
+    task_func()
+    gui._safe_execute.assert_called_once_with(ANY, title=f"Error loading data files")
+    args, kwargs = gui._safe_execute.call_args
+    assert "Error loading data files" == kwargs["title"]
+    callable_passed = args[0]
+    callable_passed()
+    gui._execute_selection.assert_called_once_with(files, dataset_config)
+
+    mock_progress.assert_called_once_with(gui.root, title=dataset_config.loading_title, message=dataset_config.loading_message)
+    gui.root.after.assert_called_once_with(100, ANY)
+
+# ._check_thread
+@pytest.mark.parametrize("thread_alive", [True, False])
+def test_check_thread(thread_alive: bool) -> None:
+    gui = CIMShaclGUI()
+    gui.loading_window = Mock()
+    gui.root = Mock()
+    thread_mock = Mock()
+    thread_mock.is_alive.return_value = thread_alive
+    
+    gui._check_thread(thread_mock)
+
+    if thread_alive:
+        gui.root.after.assert_called_once_with(100, ANY)
+        gui.loading_window.stop.assert_not_called()
+    else:
+        gui.loading_window.close.assert_called_once()
+        gui.root.after.assert_not_called()
+
+
+# ._prepare_data_graph
+@pytest.mark.parametrize(
+        "graph, add_datatypes, datatype_file",
+        [
+            pytest.param(None, False, None, id="No data"),
+            pytest.param("graph", False, None, id="Data with no datatypes"),
+            pytest.param(None, True, "datatypes.json", id="No data with datatypes, returns early"), # Nothing is done with the datatypes.
+            pytest.param("graph", True, None, id="Data with datatypes but no custom context file"),
+            pytest.param("graph", True, "datatypes.json", id="Data with datatypes and custom file"),
+            pytest.param("graph", False, "datatypes.json", id="Data without datatypes but has custom file"),    # Custom datatypes is sent but never used when add_datatypes is False.
+        ]
+)
+def test_prepare_data_graph(graph, add_datatypes, datatype_file) -> None:
+    gui = CIMShaclGUI()
+    gui.datahandler = Mock()
+    gui.add_datatypes_var = Mock()
+    gui.add_datatypes_var.get.return_value = add_datatypes
+    gui.validation_service = Mock()
+    gui.datahandler.data_graph = graph
+    gui.datahandler.rdfs_graph = "rdfs_graph"
+    gui.datahandler.datatype_file = datatype_file
+    context_data = "datatypes" if datatype_file else None
+    gui.datahandler.datatypes = context_data
+
+    gui._prepare_data_graph()
+
+    if graph is None:
+        gui.validation_service.prepare_data_for_validation.assert_not_called()
+        return
+    
+    if add_datatypes:
+        if datatype_file is None:
+            gui.validation_service.prepare_data_for_validation.assert_called_once_with(graph, "rdfs_graph", add_datatypes=True, context_data=None)
+        else:
+            gui.validation_service.prepare_data_for_validation.assert_called_once_with(graph, "rdfs_graph", add_datatypes=True, context_data="datatypes")
+    else:
+        gui.validation_service.prepare_data_for_validation.assert_called_once_with(graph, "rdfs_graph", add_datatypes=False, context_data=context_data)
 
 # Unit tests _save_config_info
 @pytest.mark.parametrize(
