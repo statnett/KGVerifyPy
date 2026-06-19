@@ -19,7 +19,22 @@ class DataHandler:
         self.shacl_graph: Graph|None = None
         self.datatypes: dict|None = None
 
+    # Setters
+    def set_data_files(self, files: list[str], format: str) -> None:
+        self.data_files = files
+        self.data_format = format
 
+    def set_shacl_file(self, file: str, format: str) -> None:
+        self.shacl_file = file
+        self.shacl_format = format
+
+    def set_rdfs_files(self, files: list[str]) -> None:
+        self.rdfs_files = files
+
+    def set_datatype_file(self, file: str) -> None:
+        self.datatype_file = file
+
+    # Loaders
     def load_data_files(self) -> None:
         if not self.data_files:
             self.data_graph = None

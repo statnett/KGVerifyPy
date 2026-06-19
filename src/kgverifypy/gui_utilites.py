@@ -2,6 +2,9 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
 import time
+from dataclasses import dataclass
+from typing import Callable, Optional
+
 import logging
 
 logger = logging.getLogger("primary")
@@ -150,6 +153,18 @@ def safe_gui_thread(title="Error"):
         return wrapper
     return decorator
 
+@dataclass(frozen=True)
+class FileSelectorConfig:
+    title: str
+    config_key: str
+    multiple: bool
+    var_attr: str
+    set_method: str
+    load_method: str
+    format_attr: Optional[str] = None
+    threaded: bool = False
+    loading_title: str = ""
+    loading_message: str = ""
 
 if __name__ == "__main__":
 	print("Utilities for KGVerifyPy GUI.")

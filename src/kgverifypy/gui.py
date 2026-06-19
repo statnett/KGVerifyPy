@@ -12,7 +12,11 @@ from kgverifypy.validation_service import ShaclValidationService
 from kgverifypy.csv_utilities import collect_violations, write_shacl_violations_to_csv
 from kgverifypy.data_handler import DataHandler
 from kgverifypy.namespaces import compare_namespaces, all_namespaces_match, format_namespace_matrix
-from kgverifypy.gui_utilites import CollapsibleSection, ProgressTimerDialog, safe_gui_call, safe_gui_thread
+from kgverifypy.gui_utilites import CollapsibleSection, ProgressTimerDialog, safe_gui_call, safe_gui_thread, FileSelectorConfig
+# from dataclasses import dataclass
+import logging
+
+logger = logging.getLogger("primary")
 
 FILE_CONFIG_PATH = Path(__file__).parent / "file_config.json"
 DEFAULT_MAIN_GEOMETRY = "760x700"
@@ -244,68 +248,160 @@ class CIMShaclGUI:
 		return start_row + 1
 
 	# Data handling methods
+	def _safe_execute(self, func, *, title: str):
+		try:
+			func()
+		except Exception as e:
+			logger.exception("Unhandled exception")
 
-	
+			self.root.after(
+				0,
+				lambda e=e: messagebox.showerror(title, str(e))
+			)
+
+	def _select_files_by_type(self, filetype: str):
+		config = FILE_SELECTORS[filetype]
+
+		initial_dir = _load_dir_from_config(self.file_config, config.config_key)
+
+		dialog = filedialog.askopenfilenames if config.multiple else filedialog.askopenfilename
+		
+		result = dialog(initialdir=initial_dir, title=config.title)
+
+		if not result:
+			return
+
+		files: list[str]|str = list(result) if isinstance(result, tuple) else result
+
+		# ✅ Choose execution mode
+		if config.threaded:
+			self._run_threaded(filetype, files, config)
+		else:
+			self._safe_execute(
+				lambda: self._execute_selection(filetype, files, config),
+				title=f"Error loading {filetype} files"
+			)
+
+	def _execute_selection(self, filetype: str, files: str | list[str], config: FileSelectorConfig) -> None:
+		fmt = None
+
+		# ✅ Format handling
+		if config.format_attr:
+			fmt_getter = getattr(self, config.format_attr)
+			fmt = fmt_getter.get()
+
+		# ✅ Call DataHandler
+		setter = getattr(self.datahandler, config.set_method)
+		if fmt is not None:
+			setter(files, fmt)
+		else:
+			setter(files)
+
+		# ✅ Update UI
+		var = getattr(self, config.var_attr)
+		if isinstance(files, list) and len(files) > 1:
+			var.set(f"{len(files)} files selected")
+		else:
+			var.set(files)
+
+		# ✅ Save config
+		first = files[0] if isinstance(files, list) else files
+		_save_config_info(self.file_config, first, config.config_key, fmt)
+
+		# ✅ Load
+		getattr(self.datahandler, config.load_method)()
+
+	def _run_threaded(self, filetype: str, files: str | list[str], config: FileSelectorConfig):
+		self.loading_window = ProgressTimerDialog(
+			self.root,
+			title=config.loading_title,
+			message=config.loading_message,
+		)
+		self.loading_window.start()
+
+		def task():
+			self._safe_execute(
+				lambda: self._execute_selection(filetype, files, config),
+				title=f"Error loading {filetype} files"
+			)
+
+		thread = threading.Thread(target=task, daemon=True)
+		thread.start()
+
+		self._check_thread(thread)
+
 	def _check_thread(self, thread: threading.Thread) -> None:
 		if thread.is_alive():
 			self.root.after(100, lambda: self._check_thread(thread))
 		else:
 			self.loading_window.close()
 
-	@safe_gui_thread(title="Error loading data files")
-	def _load_data_files_thread(self) -> None:
-		self.datahandler.load_data_files()
+	def _select_data_files(self):
+		self._select_files_by_type("data")
+
+	def _select_shacl_file(self):
+		self._select_files_by_type("shacl")
+
+	def _select_rdfs_files(self):
+		self._select_files_by_type("rdfs")
+
+	def _select_datatype_file(self):
+		self._select_files_by_type("datatypes")
+
+	# @safe_gui_thread(title="Error loading data files")
+	# def _load_data_files_thread(self) -> None:
+	# 	self.datahandler.load_data_files()
 		
-	def _select_data_files(self) -> None:
-		initial_dir = _load_dir_from_config(self.file_config, "data")
-		files = filedialog.askopenfilenames(initialdir=initial_dir, title="Select data files")
+	# def _select_data_files(self) -> None:
+	# 	initial_dir = _load_dir_from_config(self.file_config, "data")
+	# 	files = filedialog.askopenfilenames(initialdir=initial_dir, title="Select data files")
 		
-		if not files:
-			return
+	# 	if not files:
+	# 		return
 		
-		filelist = list(files)
-		self.datahandler.data_files = filelist
-		self.data_var.set(f"{len(self.datahandler.data_files)} files selected")
-		self.datahandler.data_format = self.data_format.get()
-		_save_config_info(self.file_config, filelist[0], "data", self.data_format.get())
+	# 	filelist = list(files)
+	# 	self.datahandler.data_files = filelist
+	# 	self.data_var.set(f"{len(self.datahandler.data_files)} files selected")
+	# 	self.datahandler.data_format = self.data_format.get()
+	# 	_save_config_info(self.file_config, filelist[0], "data", self.data_format.get())
 
-		self.loading_window = ProgressTimerDialog(self.root, title="Loading data files...", message="Large files may take a while")
-		self.loading_window.start()
-		thread = threading.Thread(target=self._load_data_files_thread, daemon=True)
-		thread.start()
-		self._check_thread(thread)
+	# 	self.loading_window = ProgressTimerDialog(self.root, title="Loading data files...", message="Large files may take a while")
+	# 	self.loading_window.start()
+	# 	thread = threading.Thread(target=self._load_data_files_thread, daemon=True)
+	# 	thread.start()
+	# 	self._check_thread(thread)
 
-	@safe_gui_call(title="Error loading SHACL file")
-	def _select_shacl_file(self) -> None:
-		initial_dir = _load_dir_from_config(self.file_config, "shacl")
-		file = filedialog.askopenfilename(initialdir=initial_dir, title="Select shacl file")
-		if file:
-			self.datahandler.shacl_file = file
-			self.shacl_var.set(file)
-			self.datahandler.shacl_format = self.shacl_format.get()
-			_save_config_info(self.file_config, file, "shacl", self.shacl_format.get())
-			self.datahandler.load_shacl_file()
+	# @safe_gui_call(title="Error loading SHACL file")
+	# def _select_shacl_file(self) -> None:
+	# 	initial_dir = _load_dir_from_config(self.file_config, "shacl")
+	# 	file = filedialog.askopenfilename(initialdir=initial_dir, title="Select shacl file")
+	# 	if file:
+	# 		self.datahandler.shacl_file = file
+	# 		self.shacl_var.set(file)
+	# 		self.datahandler.shacl_format = self.shacl_format.get()
+	# 		_save_config_info(self.file_config, file, "shacl", self.shacl_format.get())
+	# 		self.datahandler.load_shacl_file()
 
-	@safe_gui_call(title="Error loading RDFS files")
-	def _select_rdfs_files(self) -> None:
-		initial_dir = _load_dir_from_config(self.file_config, "rdfs")
-		files = filedialog.askopenfilenames(initialdir=initial_dir, title="Select RDFS files")
-		if files:
-			filelist = list(files)
-			self.datahandler.rdfs_files = filelist
-			self.rdfs_var.set(f"{len(self.datahandler.rdfs_files)} files selected")
-			_save_config_info(self.file_config, filelist[0], "rdfs")
-			self.datahandler.load_rdfs_files()
+	# @safe_gui_call(title="Error loading RDFS files")
+	# def _select_rdfs_files(self) -> None:
+	# 	initial_dir = _load_dir_from_config(self.file_config, "rdfs")
+	# 	files = filedialog.askopenfilenames(initialdir=initial_dir, title="Select RDFS files")
+	# 	if files:
+	# 		filelist = list(files)
+	# 		self.datahandler.rdfs_files = filelist
+	# 		self.rdfs_var.set(f"{len(self.datahandler.rdfs_files)} files selected")
+	# 		_save_config_info(self.file_config, filelist[0], "rdfs")
+	# 		self.datahandler.load_rdfs_files()
 
-	@safe_gui_call(title="Error loading datatype context file")
-	def _select_datatype_file(self) -> None:
-		initial_dir = _load_dir_from_config(self.file_config, "datatypes")
-		file = filedialog.askopenfilename(initialdir=initial_dir, title="Select context file for datatype enrichment")
-		if file:
-			self.datahandler.datatype_file = file
-			self.datatype_var.set(file)
-			_save_config_info(self.file_config, file, "datatypes")
-			self.datahandler.load_datatypes()
+	# @safe_gui_call(title="Error loading datatype context file")
+	# def _select_datatype_file(self) -> None:
+	# 	initial_dir = _load_dir_from_config(self.file_config, "datatypes")
+	# 	file = filedialog.askopenfilename(initialdir=initial_dir, title="Select context file for datatype enrichment")
+	# 	if file:
+	# 		self.datahandler.datatype_file = file
+	# 		self.datatype_var.set(file)
+	# 		_save_config_info(self.file_config, file, "datatypes")
+	# 		self.datahandler.load_datatypes()
 
 	def _prepare_data_graph(self) -> None:
 		if self.datahandler.data_graph is None:
@@ -505,6 +601,51 @@ def _load_dir_from_config(file_config: dict[str, dict[str, str]], dataset: str) 
 		return file_config[dataset].get("last_directory", str(Path.home()))
 	return str(Path.home())
 
+
+
+FILE_SELECTORS: dict[str, FileSelectorConfig] = {
+    "data": FileSelectorConfig(
+        title="Select data files",
+        config_key="data",
+        multiple=True,
+        var_attr="data_var",
+        set_method="set_data_files",
+        load_method="load_data_files",
+        format_attr="data_format",
+        threaded=True,
+        loading_title="Loading data files...",
+        loading_message="Large files may take a while",
+    ),
+
+    "shacl": FileSelectorConfig(
+        title="Select shacl file",
+        config_key="shacl",
+        multiple=False,
+        var_attr="shacl_var",
+        set_method="set_shacl_file",
+        load_method="load_shacl_file",
+        format_attr="shacl_format",
+    ),
+
+    "rdfs": FileSelectorConfig(
+        title="Select RDFS files",
+        config_key="rdfs",
+        multiple=True,
+        var_attr="rdfs_var",
+        set_method="set_rdfs_files",
+        load_method="load_rdfs_files",
+
+    ),
+
+    "datatypes": FileSelectorConfig(
+        title="Select context file for datatype enrichment",
+        config_key="datatypes",
+        multiple=False,
+        var_attr="datatype_var",
+        set_method="set_datatype_file",
+        load_method="load_datatypes",
+    ),
+}
 
 if __name__ == "__main__":
 	print("GUI for SHACL validation")
