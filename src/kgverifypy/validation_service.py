@@ -69,8 +69,8 @@ class ShaclValidationService:
 
 		DeductiveClosure(RDFS_Semantics).expand(data_graph)
 
-	def summarize_focus_nodes(self, data_graph: Graph | None, shacl_graph: Graph | None) -> FocusNodeSummary | None:
-		"""Summarize the number of shapes in the SHACL graph and how many have explicit focus nodes in the data graph.
+	def calculate_focus_nodes(self, data_graph: Graph | None, shacl_graph: Graph | None) -> FocusNodeSummary | None:
+		"""Calculate the number of shapes in the SHACL graph and how many have explicit focus nodes in the data graph.
 		
 		Parameters:
 			data_graph (Graph | None): The RDF graph containing the data to be validated.

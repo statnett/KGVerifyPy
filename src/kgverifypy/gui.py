@@ -5,16 +5,17 @@ from tkinter import filedialog, ttk, messagebox, scrolledtext
 import threading
 import queue
 from typing import Callable, Optional
+from rdflib import Graph
 from pathlib import Path
 from rdflib.namespace import SH
 from kgverifypy.file_handling import load_json, save_json
-from kgverifypy.validation_service import ShaclValidationService
+from kgverifypy.validation_service import ShaclValidationService, ShaclValidationResult
 from kgverifypy.csv_utilities import collect_violations, write_shacl_violations_to_csv
 from kgverifypy.data_handler import DataHandler, DatasetConfig
 from kgverifypy.namespaces import compare_namespaces, all_namespaces_match, format_namespace_matrix
 from kgverifypy.gui_utilites import CollapsibleSection, ProgressTimerDialog, safe_gui_call, safe_gui_thread
-# from dataclasses import dataclass
 import logging
+
 
 logger = logging.getLogger("primary")
 
@@ -110,11 +111,11 @@ class CIMShaclGUI:
 		row = self._add_collapsible_section(frame, row, "Add RDFS files", self._rdfs_section)
 		row = self._add_collapsible_section(frame, row, "Datatype enrichment options", self._datatype_section)
 		
-		ttk.Button(frame, text="Check namespaces", command=self.show_namespace_report).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(15, 15))
+		ttk.Button(frame, text="Check namespaces", command=self._show_namespace_report).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(15, 15))
 
 		row = self._validation_output_section(frame, row + 1)
 
-		ttk.Button(frame, text="Run SHACL validation", command=self.start_validation).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(15, 0))
+		ttk.Button(frame, text="Run SHACL validation", command=self._start_validation).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(15, 0))
 
 	def _file_selection_section(self, frame: ttk.Frame, start_row: int, title: str, format_var: tk.StringVar, file_var: tk.StringVar, format_options: list[tuple[str, str]], select_command: Callable[[], None]) -> int:
 		"""Build a file selection section with radiobuttons.
@@ -388,15 +389,20 @@ class CIMShaclGUI:
 		self.validation_service.prepare_data_for_validation(self.datahandler.data_graph, self.datahandler.rdfs_graph, add_datatypes=self.add_datatypes_var.get(), context_data=context_data)
 
 	# Output methods
-
 	def _show_output_message(self, message: str) -> None:
+		"""Helper method to show a message in the output text area of the validation dialog.
+		
+		Parameters:
+			message (str): The message to display in the output area.
+		"""
 		self.output.config(state=tk.NORMAL)
 		self.output.insert(tk.END, message + "\n")
 		self.output.see(tk.END)
 		self.output.config(state=tk.DISABLED)
 
 
-	def show_namespace_report(self):
+	def _show_namespace_report(self):
+		"""Generate and display a report comparing the namespaces used in the data graphs, SHACL graphs and RDFS graphs."""
 		graphs = {
 			"data": self.datahandler.data_graph,
 			"shacl": self.datahandler.shacl_graph
@@ -413,29 +419,16 @@ class CIMShaclGUI:
 
 		matrix_text = format_namespace_matrix(report, list(graphs.keys()))
 
-		# Popup window with scroll
 		win = tk.Toplevel()
 		win.title("Namespace Differences")
-
 		text_area = scrolledtext.ScrolledText(win, wrap=tk.WORD, width=110, height=30, font=("Courier", 15), bg="#f0f0f0", fg="#202020", insertbackground="#202020", relief=tk.SUNKEN, borderwidth=2)
 		text_area.insert(tk.END, matrix_text)
 		text_area.config(state=tk.DISABLED)
 		text_area.pack(padx=10, pady=10)
 
 			
-	def _report_focus_nodes(self) -> None:
-		summary = self.validation_service.summarize_focus_nodes(self.datahandler.data_graph, self.datahandler.shacl_graph)
-		if summary is None:
-			return
-
-		focus_message = (
-			f"Total number of shapes: {summary.total_shapes}\n"
-			f"Shapes with explicit focus nodes in graph: {summary.shapes_with_focus_nodes}\n"
-		)
-		self._show_output_message(focus_message)
-
-
-	def start_validation(self) -> None:
+	def _start_validation(self) -> None:
+		"""Start the SHACL validation process with a progressbar and timer."""
 		self.validation_dialog = ProgressTimerDialog(self.root, title="Running SHACL validation...", message="Large graphs may take a while")
 		self.validation_dialog.start()
 		self.validation_dialog.top.geometry(DEFAULT_OUTPUT_GEOMETRY)
@@ -455,20 +448,21 @@ class CIMShaclGUI:
 			self._show_output_message(f"An error occurred:\n {str(e)}")
 
 
-	def _check_validation_queue(self):
-		try:
-			status, payload = self.validation_queue.get_nowait()
+	def _report_focus_nodes(self) -> None:
+		"""Report the total number of shapes and how many have explicit focus nodes in the data graph."""
+		summary = self.validation_service.calculate_focus_nodes(self.datahandler.data_graph, self.datahandler.shacl_graph)
+		if summary is None:
+			return
 
-			if status == "done":
-				self._on_validation_done(payload)
-			else:
-				self._on_validation_error(payload)
+		focus_message = (
+			f"Total number of shapes: {summary.total_shapes}\n"
+			f"Shapes with explicit focus nodes in graph: {summary.shapes_with_focus_nodes}\n"
+		)
+		self._show_output_message(focus_message)
 
-		except Exception:
-			# nothing yet → check again in 100ms
-			self.validation_dialog.top.after(100, self._check_validation_queue)
 
-	def _process_shacl_validation_async(self):
+	def _process_shacl_validation_async(self) -> None:
+		"""Run the SHACL validation in a separate thread and use a queue to get the results back to the main thread."""
 		self.validation_queue = queue.Queue()
 
 		def worker():
@@ -488,8 +482,27 @@ class CIMShaclGUI:
 		self._check_validation_queue()
 
 
-	def _on_validation_done(self, result):
+	def _check_validation_queue(self) -> None:
+		"""Check the validation queue for results from the background validation thread, and update the GUI accordingly."""
+		try:
+			status, payload = self.validation_queue.get_nowait()
 
+			if status == "done":
+				self._on_validation_done(payload)
+			else:
+				self._on_validation_error(payload)
+
+		except Exception:
+			# nothing yet → check again in 100ms
+			self.validation_dialog.top.after(100, self._check_validation_queue)
+
+
+	def _on_validation_done(self, result: ShaclValidationResult | None) -> None:
+		"""Handle the completion of the SHACL validation process, updating the GUI with results and saving output files as needed.
+		
+		Parameters:
+			result (ShaclValidationResult | None): The result of the SHACL validation process, or None if validation could not be performed due to missing graphs.
+		"""
 		if hasattr(self, "validation_dialog") and self.validation_dialog:
 			self.validation_dialog.stop()
 
@@ -497,38 +510,98 @@ class CIMShaclGUI:
 			self._show_output_message("Data graph or SHACL graph not loaded.")
 			return
 
+		self._report_basic_validation_results(result)
+		self._report_validation_summary(result)
+		self._output_validation_results_to_file(result)
+
+
+	def _report_basic_validation_results(self, result: ShaclValidationResult) -> None:
+		"""Report the basic results of the SHACL validation, including the number of triples in the data graph and whether the data conforms to the SHACL shapes.
+		
+		Parameters:
+			result (ShaclValidationResult): The result of the SHACL validation process, containing information about the validation outcome and the results graph.
+		"""
 		graph_count = len(self.datahandler.data_graph) if self.datahandler.data_graph else 0
 
 		self._show_output_message(f"SHACL validation completed on {graph_count} triples.")
 		self._show_output_message(f"Conforms: {result.conforms}")
-		self._show_output_message(" ")	# Add some spacing before summary of results.
+		self._show_output_message(" ")	# Add some spacing before the next section.
 
-		if result.summary_validation_results:
-			message = "Summary of validation results (error type and count):\n"
-			for error_type, count in result.summary_validation_results:
-				message += f"{error_type}: {count}\n"
-			self._show_output_message(message)
+	def _report_validation_summary(self, result: ShaclValidationResult) -> None:
+		"""Report the types of validation errors and their counts if any were found.
+		
+		Parameters:
+			result (ShaclValidationResult): The result of the SHACL validation process, including a summary of validation results if violations were found.
+		"""
+		if not result.summary_validation_results:
+			return
+		
+		message = "Summary of validation results (error type and count):\n"
+		for error_type, count in result.summary_validation_results:
+			message += f"{error_type}: {count}\n"
 
-		if result.results_graph is not None and SH.result in result.results_graph.predicates():
-			output_path = self.validation_output_path.get().strip() or DEFAULT_VALIDATION_OUTPUT
-			output_format = self.validation_output_format.get()
+		self._show_output_message(message)
 
-			saved = self.validation_service.serialize_results(result.results_graph, output_path, output_format)
-			if saved:
-				self._show_output_message(f"Validation report saved to: {output_path}")
+	def _output_validation_results_to_file(self, result: ShaclValidationResult) -> None:
+		"""Output the validation results to a file in the selected format, and optionally save a CSV report of violations.
+		
+		If the result does not contain violations (i.e. triples with the predicate sh:result), no output file will be saved.
 
-			if self.csv_report_var.get():
-				csv_result = collect_violations(result.results_graph)
-				csv_output_path = output_path.rsplit(".", 1)[0] + ".csv"
-				write_shacl_violations_to_csv(csv_result, csv_output_path)
-				self._show_output_message(f"Validation report saved as CSV to: {csv_output_path}")
+		Parameters:
+			result (ShaclValidationResult): The result of the SHACL validation process, including the results graph with validation results that can be serialized to a file.
+		"""
+		result_graph = result.results_graph
 
-	def _on_validation_error(self, error):
+		if result_graph is None or SH.result not in result_graph.predicates():
+			return
+		
+		output_path = self.validation_output_path.get().strip() or DEFAULT_VALIDATION_OUTPUT
+		output_format = self.validation_output_format.get()
+
+		self._save_validation_results_to_graph(result_graph, output_path, output_format)
+
+		if self.csv_report_var.get():
+			self._save_csv_report(result_graph, output_path)
+
+
+	def _save_validation_results_to_graph(self, result_graph: Graph, output_path: str, output_format: str) -> None:
+		"""Save the validation results graph to a file in the specified format, and show a message in the GUI with the output path.
+		
+		Parameters:
+			result_graph (Graph): The RDF graph containing the validation results to be saved.
+			output_path (str): The file path where the validation results should be saved.
+			output_format (str): The format in which to save the validation results (e.g., "json-ld", "ttl", "xml").
+		"""
+		saved = self.validation_service.serialize_results(result_graph, output_path, output_format)
+		if saved:
+			self._show_output_message(f"Validation report saved to: {output_path}")
+
+
+	def _save_csv_report(self, result_graph: Graph, output_path: str) -> None:
+		"""Save a CSV report of SHACL violations extracted from the validation results graph, and show a message in the GUI with the CSV output path.
+		
+		Parameters:
+			result_graph (Graph): The RDF graph containing the validation results from which to extract SHACL violations for the CSV report.
+			output_path (str): The base file path where the CSV report should be saved (the .csv extension will be added automatically).
+		"""
+		csv_result = collect_violations(result_graph)
+		csv_output_path = output_path.rsplit(".", 1)[0] + ".csv"
+		write_shacl_violations_to_csv(csv_result, csv_output_path)
+		self._show_output_message(f"Validation report saved as CSV to: {csv_output_path}")
+
+
+	def _on_validation_error(self, error: Exception) -> None:
+		"""Handle an error that occurred during the SHACL validation process, showing an error message in the GUI.
+		
+		Parameters:
+			error (Exception): The exception that was raised during the validation process.
+		"""
 		if hasattr(self, "validation_dialog") and self.validation_dialog:
 			self.validation_dialog.stop()
 
 		self._show_output_message(f"An error occurred:\n{str(error)}")
 		
+
 	# Debugging methods kept in case they are needed again in the future, but not currently used in the GUI.
 
 	def _graph_counts_for_debugging(self, top: tk.Toplevel) -> None:

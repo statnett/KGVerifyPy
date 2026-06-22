@@ -2,13 +2,17 @@ import pytest
 from unittest.mock import Mock, MagicMock, patch, call, ANY
 import tkinter as tk
 from pathlib import Path
+from rdflib import Graph, URIRef
+from rdflib.namespace import SH
+from src.kgverifypy.validation_service import ShaclValidationResult
 
 from src.kgverifypy.gui import (
     FILE_CONFIG_PATH,
     CIMShaclGUI,
     _save_config_info,
     _load_dir_from_config,
-    DATASET_SELECTORS
+    DATASET_SELECTORS,
+    DEFAULT_VALIDATION_OUTPUT
 )
 
 PATCH_LOCATION = "src.kgverifypy.gui"
@@ -105,10 +109,10 @@ def test_build_gui_buttons(frame_mock: MagicMock, button_mock: MagicMock):
     calls = button_mock.call_args_list
 
     assert any(call.kwargs["text"] == "Check namespaces" for call in calls)
-    assert any(call.kwargs["command"] == gui.show_namespace_report for call in calls)
+    assert any(call.kwargs["command"] == gui._show_namespace_report for call in calls)
 
     assert any(call.kwargs["text"] == "Run SHACL validation" for call in calls)
-    assert any(call.kwargs["command"] == gui.start_validation for call in calls)
+    assert any(call.kwargs["command"] == gui._start_validation for call in calls)
 
 # ._file_selection_section
 def test_file_selection_section() -> None:
@@ -516,6 +520,457 @@ def test_prepare_data_graph(graph, add_datatypes, datatype_file) -> None:
             gui.validation_service.prepare_data_for_validation.assert_called_once_with(graph, "rdfs_graph", add_datatypes=True, context_data="datatypes")
     else:
         gui.validation_service.prepare_data_for_validation.assert_called_once_with(graph, "rdfs_graph", add_datatypes=False, context_data=context_data)
+
+# ._show_namespace_report
+@patch(f"{PATCH_LOCATION}.tk.Toplevel")
+@patch(f"{PATCH_LOCATION}.format_namespace_matrix")
+@patch(f"{PATCH_LOCATION}.messagebox.showinfo")
+@patch(f"{PATCH_LOCATION}.all_namespaces_match")
+@patch(f"{PATCH_LOCATION}.compare_namespaces")
+def test_show_namespace_report_allmatch(mock_compare: MagicMock, mock_all_match: MagicMock, mock_showinfo: MagicMock, mock_format: MagicMock, mock_toplevel: MagicMock) -> None:
+    gui = CIMShaclGUI()
+    gui.datahandler = Mock()
+    gui.datahandler.data_graph = "data_graph"
+    gui.datahandler.shacl_graph = "shacl_graph"
+    gui.datahandler.rdfs_graph = None
+
+    mock_compare.return_value = {"namespace1": ("prefix1", "uri1")}
+    mock_all_match.return_value = True
+    gui._show_namespace_report()
+    mock_compare.assert_called_once_with({"data": "data_graph", "shacl": "shacl_graph"})
+    mock_all_match.assert_called_once_with({"namespace1": ("prefix1", "uri1")})
+    mock_format.assert_not_called()
+    mock_showinfo.assert_called_once_with("Namespace Check", "✅ All namespaces match.")
+    mock_toplevel.assert_not_called()
+
+
+@patch(f"{PATCH_LOCATION}.scrolledtext.ScrolledText")
+@patch(f"{PATCH_LOCATION}.tk.Toplevel")
+@patch(f"{PATCH_LOCATION}.format_namespace_matrix")
+@patch(f"{PATCH_LOCATION}.messagebox.showinfo")
+@patch(f"{PATCH_LOCATION}.all_namespaces_match")
+@patch(f"{PATCH_LOCATION}.compare_namespaces")
+def test_show_namespace_report_notmatched(mock_compare: MagicMock, mock_all_match: MagicMock, mock_showinfo: MagicMock, mock_format: MagicMock, mock_toplevel: MagicMock, mock_scrolled: MagicMock) -> None:
+    gui = CIMShaclGUI()
+    gui.datahandler = Mock()
+    gui.datahandler.data_graph = "data_graph"
+    gui.datahandler.shacl_graph = "shacl_graph"
+    gui.datahandler.rdfs_graph = None
+
+    mock_compare.return_value = {"namespace1": ("prefix1", "uri1"), "namespace2": ("prefix2", "uri2")}
+    mock_all_match.return_value = False
+    formatted_report = "Formatted Namespace Report"
+    mock_format.return_value = formatted_report
+    gui._show_namespace_report()
+    mock_compare.assert_called_once_with({"data": "data_graph", "shacl": "shacl_graph"})
+    mock_all_match.assert_called_once_with({"namespace1": ("prefix1", "uri1"), "namespace2": ("prefix2", "uri2")})
+    mock_format.assert_called_once_with({"namespace1": ("prefix1", "uri1"), "namespace2": ("prefix2", "uri2")},["data", "shacl"])
+    mock_showinfo.assert_not_called()
+    mock_toplevel.assert_called_once()
+    mock_scrolled.assert_called_once()
+    mock_scrolled.return_value.insert.assert_called_once_with(tk.END, formatted_report)
+
+
+@patch(f"{PATCH_LOCATION}.tk.Toplevel")
+@patch(f"{PATCH_LOCATION}.format_namespace_matrix")
+@patch(f"{PATCH_LOCATION}.messagebox.showinfo")
+@patch(f"{PATCH_LOCATION}.all_namespaces_match")
+@patch(f"{PATCH_LOCATION}.compare_namespaces")
+def test_show_namespace_report_withrdfs(mock_compare: MagicMock, mock_all_match: MagicMock, mock_showinfo: MagicMock, mock_format: MagicMock, mock_toplevel: MagicMock) -> None:
+    gui = CIMShaclGUI()
+    gui.datahandler = Mock()
+    gui.datahandler.data_graph = "data_graph"
+    gui.datahandler.shacl_graph = "shacl_graph"
+    gui.datahandler.rdfs_graph = "rdfs_graph"
+
+    mock_compare.return_value = {"namespace1": ("prefix1", "uri1"), "namespace2": ("prefix2", "uri2")}
+    mock_all_match.return_value = False
+    gui._show_namespace_report()
+    mock_compare.assert_called_once_with({"data": "data_graph", "shacl": "shacl_graph", "rdfs": "rdfs_graph"})
+    mock_all_match.assert_called_once_with({"namespace1": ("prefix1", "uri1"), "namespace2": ("prefix2", "uri2")})
+    mock_format.assert_called_once_with({"namespace1": ("prefix1", "uri1"), "namespace2": ("prefix2", "uri2")},["data", "shacl", "rdfs"])
+    mock_showinfo.assert_not_called()
+    mock_toplevel.assert_called_once()
+
+
+# ._report_focus_nodes
+def test_report_focus_nodes_summarynone() -> None:
+    gui = CIMShaclGUI()
+    gui.validation_service = Mock()
+    gui.validation_service.calculate_focus_nodes.return_value = None
+    gui._show_output_message = Mock()
+
+    gui._report_focus_nodes()
+    gui._show_output_message.assert_not_called()
+
+
+def test_report_focus_nodes_summarynotnone() -> None:
+    gui = CIMShaclGUI()
+    gui.validation_service = Mock()
+    focus_nodes = Mock()
+    focus_nodes.total_shapes = 5
+    focus_nodes.shapes_with_focus_nodes = 1
+    gui.validation_service.calculate_focus_nodes.return_value = focus_nodes
+    gui._show_output_message = Mock()
+
+    gui._report_focus_nodes()
+
+    expected_message = (
+			f"Total number of shapes: {focus_nodes.total_shapes}\n"
+			f"Shapes with explicit focus nodes in graph: {focus_nodes.shapes_with_focus_nodes}\n"
+		)
+
+    gui._show_output_message.assert_called_once_with(expected_message)
+
+
+# ._start_validation
+@patch(f"{PATCH_LOCATION}.tk.Text")
+@patch(f"{PATCH_LOCATION}.tk.Frame")
+@patch(f"{PATCH_LOCATION}.ProgressTimerDialog")
+def test_start_validation(mock_progress: MagicMock, mock_frame: MagicMock, mock_text: MagicMock) -> None:
+    gui = CIMShaclGUI()
+    gui._prepare_data_graph = Mock()
+    gui._report_focus_nodes = Mock()
+    gui._process_shacl_validation_async = Mock()
+    gui._show_output_message = Mock()
+    
+    gui._start_validation()
+
+    mock_progress.assert_called_once_with(gui.root, title="Running SHACL validation...", message="Large graphs may take a while")
+    mock_progress.return_value.start.assert_called_once()
+    mock_frame.assert_called_once_with(mock_progress.return_value.top)
+    mock_text.assert_called_once()
+    gui._prepare_data_graph.assert_called_once()
+    gui._report_focus_nodes.assert_called_once()
+    gui._process_shacl_validation_async.assert_called_once()
+    gui._show_output_message.assert_not_called()
+
+@patch(f"{PATCH_LOCATION}.tk.Text")
+@patch(f"{PATCH_LOCATION}.tk.Frame")
+@patch(f"{PATCH_LOCATION}.ProgressTimerDialog")
+def test_start_validation_exception(mock_progress: MagicMock, mock_frame: MagicMock, mock_text: MagicMock) -> None:
+    gui = CIMShaclGUI()
+    gui._prepare_data_graph = Mock()
+    gui._report_focus_nodes = Mock(side_effect=Exception("Validation error"))
+    gui._process_shacl_validation_async = Mock()
+    gui._show_output_message = Mock()
+    
+    gui._start_validation()
+
+    mock_progress.assert_called_once_with(gui.root, title="Running SHACL validation...", message="Large graphs may take a while")
+    mock_progress.return_value.start.assert_called_once()
+    mock_frame.assert_called_once_with(mock_progress.return_value.top)
+    mock_text.assert_called_once()
+    gui._prepare_data_graph.assert_called_once()
+    gui._report_focus_nodes.assert_called_once()
+    gui._process_shacl_validation_async.assert_not_called()
+    gui._show_output_message.assert_called_once_with('An error occurred:\n Validation error')
+
+
+# ._process_shacl_validation_async
+@pytest.mark.parametrize("rdfs_graph", [None, "rdfs_graph"])
+@patch(f"{PATCH_LOCATION}.threading.Thread")
+@patch(f"{PATCH_LOCATION}.queue.Queue")
+def test_process_shacl_validation_async(mock_queue: MagicMock, mock_thread: MagicMock, rdfs_graph: str) -> None:
+    gui = CIMShaclGUI()
+    gui.datahandler = Mock()
+    gui.datahandler.data_graph = "data_graph"
+    gui.datahandler.shacl_graph = "shacl_graph"
+    gui.datahandler.rdfs_graph = rdfs_graph
+    gui.validation_service = Mock()
+    gui.validation_service.validate_graphs.return_value = "validation_result"
+    gui._check_validation_queue = Mock()
+
+    gui._process_shacl_validation_async()
+
+    mock_thread.assert_called_once_with(target=ANY, daemon=True)
+    mock_thread.return_value.start.assert_called_once()
+    task_func = mock_thread.call_args.kwargs["target"]
+    task_func()
+    gui.validation_service.validate_graphs.assert_called_once_with(gui.datahandler.data_graph, gui.datahandler.shacl_graph, gui.datahandler.rdfs_graph)
+    mock_queue.return_value.put.assert_called_once_with(("done", "validation_result"))
+    gui._check_validation_queue.assert_called_once()
+
+
+@patch(f"{PATCH_LOCATION}.threading.Thread")
+@patch(f"{PATCH_LOCATION}.queue.Queue")
+def test_process_shacl_validation_async_exception(mock_queue: MagicMock, mock_thread: MagicMock) -> None:
+    gui = CIMShaclGUI()
+    gui.datahandler = Mock()
+    gui.datahandler.data_graph = "data_graph"
+    gui.datahandler.shacl_graph = "shacl_graph"
+    gui.datahandler.rdfs_graph = None
+    gui.validation_service = Mock()
+    exception = Exception("Validation error")
+    gui.validation_service.validate_graphs.side_effect = exception
+    gui._check_validation_queue = Mock()
+
+    gui._process_shacl_validation_async()
+
+    mock_thread.assert_called_once_with(target=ANY, daemon=True)
+    mock_thread.return_value.start.assert_called_once()
+    task_func = mock_thread.call_args.kwargs["target"]
+    task_func()
+    gui.validation_service.validate_graphs.assert_called_once_with(gui.datahandler.data_graph, gui.datahandler.shacl_graph, gui.datahandler.rdfs_graph)
+    mock_queue.return_value.put.assert_called_once_with(("error", exception))
+    gui._check_validation_queue.assert_called_once()
+
+
+# ._check_validation_queue
+@pytest.mark.parametrize("status", ["running", "error"])
+def test_check_validation_queue_resultavailable(status: str) -> None:
+    gui = CIMShaclGUI()
+    validation_result = Mock()
+    gui.validation_queue = Mock()
+    gui.validation_queue.get_nowait.return_value = (status, validation_result)
+    gui._on_validation_done = Mock()
+    gui._on_validation_error = Mock()
+    gui.validation_dialog = Mock()
+
+    gui._check_validation_queue()
+
+    gui.validation_queue.get_nowait.assert_called_once()
+    if status == "done":
+        gui._on_validation_done.assert_called_once_with(validation_result)
+        gui._on_validation_error.assert_not_called()
+    else:
+        gui._on_validation_done.assert_not_called()
+        gui._on_validation_error.assert_called_once_with(validation_result)
+
+    gui.validation_dialog.top.after.assert_not_called()
+
+
+def test_check_validation_queue_exception() -> None:
+    gui = CIMShaclGUI()
+    gui.validation_queue = Mock()
+    gui.validation_queue.get_nowait.side_effect = Exception("Queue error")
+    gui._on_validation_done = Mock()
+    gui._on_validation_error = Mock()
+    gui.validation_dialog = Mock()
+
+    gui._check_validation_queue()
+
+    gui.validation_queue.get_nowait.assert_called_once()
+    gui._on_validation_done.assert_not_called()
+    gui._on_validation_error.assert_not_called()
+    gui.validation_dialog.top.after.assert_called_once_with(100, gui._check_validation_queue)
+
+
+# ._on_validation_done
+def test_on_validation_done_novalidationdialog() -> None:
+    gui = CIMShaclGUI()
+    gui._show_output_message = Mock()
+    gui._report_basic_validation_results = Mock()
+
+    gui._on_validation_done(None)
+
+    assert not hasattr(gui, "validation_dialog")
+
+    gui._show_output_message.assert_called_once_with("Data graph or SHACL graph not loaded.")
+    gui._report_basic_validation_results.assert_not_called()
+
+
+def test_on_validation_done_noresults() -> None:
+    gui = CIMShaclGUI()
+    gui.validation_dialog = Mock()
+    gui._show_output_message = Mock()
+    gui._report_basic_validation_results = Mock()
+
+    gui._on_validation_done(None)
+
+    gui.validation_dialog.stop.assert_called_once()
+    gui._show_output_message.assert_called_once_with("Data graph or SHACL graph not loaded.")
+    gui._report_basic_validation_results.assert_not_called()
+
+
+def test_on_validation_done_withresults() -> None:
+    gui = CIMShaclGUI()
+    gui.validation_dialog = Mock()
+    gui._show_output_message = Mock()
+    gui._report_basic_validation_results = Mock()
+    gui._report_validation_summary = Mock()
+    gui._output_validation_results_to_file = Mock()
+    result = ShaclValidationResult(conforms=False, results_graph=Graph())
+
+    gui._on_validation_done(result)
+
+    gui.validation_dialog.stop.assert_called_once()
+    gui._show_output_message.assert_not_called()
+    gui._report_basic_validation_results.assert_called_once_with(result)
+    gui._report_validation_summary.assert_called_once_with(result)
+    gui._output_validation_results_to_file.assert_called_once_with(result)
+
+
+# ._report_basic_validation_results
+@pytest.mark.parametrize("is_data_graph", [True, False])
+def test_report_basic_validation_results(is_data_graph: bool) -> None:
+    gui = CIMShaclGUI()
+    gui.datahandler = Mock()
+    if is_data_graph:
+        g = Graph()
+        g.add((URIRef("s"), URIRef("p"), URIRef("o")))
+        gui.datahandler.data_graph = g
+        size = 1
+    else:
+        gui.datahandler.data_graph = None
+        size = 0
+
+    result = ShaclValidationResult(conforms=False, results_graph=Graph())
+    gui._show_output_message = Mock()
+
+    gui._report_basic_validation_results(result)
+
+    calls = [call(f"SHACL validation completed on {size} triples."), call("Conforms: False"), call(" ")]
+    gui._show_output_message.assert_has_calls(calls)
+
+
+# ._report_validation_summary
+def test_report_validation_summary_nosummary() -> None:
+    gui = CIMShaclGUI()
+    result = ShaclValidationResult(conforms=False, results_graph=Graph())
+    gui._show_output_message = Mock()
+
+    gui._report_validation_summary(result)
+
+    gui._show_output_message.assert_not_called()
+
+
+def test_report_validation_summary_withsummary() -> None:
+    gui = CIMShaclGUI()
+    summary = [(URIRef("ErrorType1"), 5), (URIRef("ErrorType2"), 3)]
+    result = ShaclValidationResult(conforms=False, results_graph=Graph(), summary_validation_results=summary)
+    gui._show_output_message = Mock()
+
+    gui._report_validation_summary(result)
+
+    gui._show_output_message.assert_called_once_with("Summary of validation results (error type and count):\nErrorType1: 5\nErrorType2: 3\n")
+
+
+# ._output_validation_results_to_file
+@pytest.mark.parametrize("is_graph", [True, False])
+def test_output_validation_results_to_file_nooutput(is_graph: bool) -> None:
+    gui = CIMShaclGUI()
+    gui._save_validation_results_to_graph = Mock()
+    gui._save_csv_report = Mock()
+
+    if is_graph:
+        g = Graph()
+        g.add((URIRef("s"), URIRef("p"), URIRef("o")))
+    else:
+        g = None
+
+    result = ShaclValidationResult(conforms=False, results_graph=g)
+    
+    gui._output_validation_results_to_file(result)
+
+    gui._save_validation_results_to_graph.assert_not_called()
+    gui._save_csv_report.assert_not_called()
+
+
+@pytest.mark.parametrize(
+        "output_path, csv",
+        [
+            pytest.param("output_path", False, id="Graph output only"),
+            pytest.param("output_path  ", False, id="Graph output with whitespace"),
+            pytest.param("", False, id="Graph output without path"),
+            pytest.param("output_path", True, id="Graph output and csv"),
+        ]
+)
+def test_output_validation_results_to_file_withoutput(output_path, csv) -> None:
+    gui = CIMShaclGUI()
+    gui.validation_output_path = Mock()
+    gui.validation_output_path.get.return_value = output_path
+    gui.validation_output_format = Mock()
+    gui.validation_output_format.get.return_value = "ttl"
+    gui.csv_report_var = Mock()
+    gui.csv_report_var.get.return_value = csv
+    gui._save_validation_results_to_graph = Mock()
+    gui._save_csv_report = Mock()
+
+    g = Graph()
+    g.add((URIRef("s"), SH.result, URIRef("o")))
+
+    result = ShaclValidationResult(conforms=False, results_graph=g)
+    
+    gui._output_validation_results_to_file(result)
+
+    if not output_path:
+        output_path = DEFAULT_VALIDATION_OUTPUT
+
+    gui._save_validation_results_to_graph.assert_called_once_with(g, output_path.strip(), "ttl")
+    if csv:
+        gui._save_csv_report.assert_called_once_with(g, output_path.strip())
+    else:
+        gui._save_csv_report.assert_not_called()
+
+
+# ._save_validation_results_to_graph
+@pytest.mark.parametrize("saved", [True, False])
+def test_save_validation_results_to_graph(saved: bool) -> None:
+    gui = CIMShaclGUI()
+    gui.validation_service = Mock()
+    gui.validation_service.serialize_results.return_value = saved
+    gui._show_output_message = Mock()
+    g = Graph()
+    output_path = "output_path"
+    output_format = "ttl"
+
+    gui._save_validation_results_to_graph(g, output_path, output_format)
+
+    gui.validation_service.serialize_results.assert_called_once_with(g, output_path, output_format)
+    if saved:
+        gui._show_output_message.assert_called_once_with(f"Validation report saved to: {output_path}")
+    else:
+        gui._show_output_message.assert_not_called()
+
+
+# ._save_csv_report
+@pytest.mark.parametrize(
+        "output_path, expected_output_path",
+        [
+            pytest.param("output_path.json", "output_path.csv", id="Normal output path"),
+            pytest.param("output_path.json  ", "output_path.csv", id="Output path with whitespace"),
+            pytest.param("output_path", "output_path.csv", id="Output path without extension"),
+            pytest.param("", ".csv", id="Empty output path"),
+            pytest.param("   ", "   .csv", id="Whitespace output path"),
+            pytest.param("output_path.csv", "output_path.csv", id="Output path with csv extension"),
+            pytest.param("output_path.ttl", "output_path.csv", id="Output path with ttl extension"),
+            pytest.param("output_path.json.ttl", "output_path.json.csv", id="Output path with two suffixes"),
+        ]
+)
+@patch(f"{PATCH_LOCATION}.write_shacl_violations_to_csv")
+@patch(f"{PATCH_LOCATION}.collect_violations")
+def test_save_csv_report(mock_collect: MagicMock, mock_write: MagicMock, output_path: str, expected_output_path: str) -> None:
+    mock_collect.return_value = "collected_violations"
+    gui = CIMShaclGUI()
+    gui._show_output_message = Mock()
+    g = Graph()
+
+    gui._save_csv_report(g, output_path)
+    
+    mock_collect.assert_called_once_with(g)
+    mock_write.assert_called_once_with("collected_violations", expected_output_path)
+    gui._show_output_message.assert_called_once_with(f"Validation report saved as CSV to: {expected_output_path}")
+
+
+# ._on_validation_error
+@pytest.mark.parametrize("dialog_exists", [True, False])
+def test_on_validation_error(dialog_exists: bool) -> None:
+    gui = CIMShaclGUI()
+    gui._show_output_message = Mock()
+    exception = Exception("Validation error")
+    if dialog_exists:
+        gui.validation_dialog = Mock()
+
+    gui._on_validation_error(exception)
+
+    gui._show_output_message.assert_called_once_with(f'An error occurred:\n{str(exception)}')
+    
+    if dialog_exists:
+        dialog = getattr(gui, "validation_dialog")
+        dialog.stop.assert_called_once()
+    else:
+        assert not hasattr(gui, "validation_dialog")
 
 # Unit tests _save_config_info
 @pytest.mark.parametrize(

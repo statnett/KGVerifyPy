@@ -157,7 +157,7 @@ def test_expand_with_rdfs_emptygraphs(mock_expand: MagicMock, data_graph: Graph,
 def test_summarize_focus_nodes_nographs(data_graph: Graph, shacl_graph: Graph) -> None:
     service = ShaclValidationService()
 
-    result = service.summarize_focus_nodes(data_graph, shacl_graph)
+    result = service.calculate_focus_nodes(data_graph, shacl_graph)
 
     assert result is None
 
@@ -171,7 +171,7 @@ def test_summarize_focus_nodes_noexplicitfocusnodes() -> None:
     shapes.add((shape, SH.targetClass, EX.Person))
 
     service = ShaclValidationService()
-    result = service.summarize_focus_nodes(data, shapes)
+    result = service.calculate_focus_nodes(data, shapes)
 
     assert isinstance(result, FocusNodeSummary)
     assert result.total_shapes == 1
@@ -194,7 +194,7 @@ def test_summarize_focus_nodes_withfocusnodes() -> None:
     data.add((EX.special, RDF.type, EX.Thing))
 
     service = ShaclValidationService()
-    result = service.summarize_focus_nodes(data, shapes)
+    result = service.calculate_focus_nodes(data, shapes)
 
     assert isinstance(result, FocusNodeSummary)
     assert result.total_shapes == 2
@@ -215,7 +215,7 @@ def test_summarize_focus_nodes_focusnodesoddreturns(mock_find_focus_nodes: Magic
     mock_find_focus_nodes.return_value = mock_return
     service = ShaclValidationService()
 
-    result = service.summarize_focus_nodes(Graph(), Graph())
+    result = service.calculate_focus_nodes(Graph(), Graph())
 
     assert isinstance(result, FocusNodeSummary)
     assert (result.total_shapes, result.shapes_with_focus_nodes) == expected_result
@@ -237,7 +237,7 @@ def test_summarize_focus_nodes_circularshacl() -> None:
     data.add((EX.a, RDF.type, EX.Person))
 
     service = ShaclValidationService()
-    result = service.summarize_focus_nodes(data, shapes)
+    result = service.calculate_focus_nodes(data, shapes)
 
     assert isinstance(result, FocusNodeSummary)
     assert result.total_shapes == 2
