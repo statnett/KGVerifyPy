@@ -43,7 +43,8 @@ class CollapsibleSection(ttk.Frame):
 
 
 class ProgressTimerDialog:
-	def __init__(self, parent, title="Processing...", message=None):
+	"""Create dialog with progress bar and timer for long-running tasks."""
+	def __init__(self, parent: tk.Tk, title: str="Processing...", message: Optional[str] = None, time_fn: Callable[[], float] = time.time) -> None:
 		self.top = tk.Toplevel(parent)
 		self.top.title(title)
 		self.top.geometry("320x140")
@@ -62,14 +63,20 @@ class ProgressTimerDialog:
 
 		self.time_label = ttk.Label(self.top, text="Elapsed: 0.0 s")
 		self.time_label.pack(pady=5)
+		self.time_fn = time_fn
 
 		# internal state
 		self._job = None
 		self.start_time = time.time()
 
 	# ---------- TIMER ----------
-	def _format_elapsed(self):
-		elapsed = time.time() - self.start_time
+	def _format_elapsed(self) -> str:
+		"""Format the elapsed time since the timer was started into a human-readable string.
+		
+		Returns:
+			str: The elapsed time in the format of "Elapsed: X s", "Elapsed: Y min Z s", or "Elapsed: H h M min" depending on the duration.
+		"""
+		elapsed = self.time_fn() - self.start_time
 
 		if elapsed < 60:
 			return f"Elapsed: {elapsed:.1f} s"
@@ -81,77 +88,44 @@ class ProgressTimerDialog:
 			mins = int((elapsed % 3600) // 60)
 			return f"Elapsed: {hours} h {mins} min"
 
-	def _tick(self):
+	def _tick(self) -> None:
+		"""Update the elapsed time label and schedule the next update after 100 milliseconds."""
 		self.time_label.config(text=self._format_elapsed())
 		self._job = self.top.after(100, self._tick)
-
+	
 	# ---------- CONTROL ----------
-	def start(self):
+	def start(self) -> None:
+		"""Start the timer and progress bar."""
 		self.start_time = time.time()
 		self.progress.start(10)
 		self._tick()
 
-	def stop(self):
-		"""Stops timer and progress WITHOUT closing window"""
+	def stop(self) -> None:
+		"""Stop timer and progress WITHOUT closing window."""
 		self.progress.stop()
 
 		if self._job:
 			self.top.after_cancel(self._job)
 			self._job = None
 
-		# One final update so the time freezes correctly
+		# Ensures time freezes correctly in window.
 		if self.start_time:
 			self.time_label.config(text=self._format_elapsed())
 
-	def close(self):
-		"""Stops everything and closes window"""
+	def close(self) -> None:
+		"""Stop everything and close window."""
 		self.stop()
 		self.top.destroy()
 
-	def get_elapsed_text(self):
+	def get_elapsed_text(self) -> str:
+		"""Return the formatted elapsed time text.
+		
+		Returns:
+			str: The formatted elapsed time text.
+		"""
 		if self.start_time:
 			return self._format_elapsed()
 		return "Elapsed: 0.0 s"
-
-
-def safe_gui_call(title="Error"):
-    def decorator(func):
-        def wrapper(self, *args, **kwargs):
-            try:
-                return func(self, *args, **kwargs)
-            except Exception as e:
-                # Full traceback goes to log
-                logger.exception("Unhandled exception in GUI action")
-
-                # Short message to user (must be in main thread)
-                self.root.after(
-                    0,
-                    lambda e=e: messagebox.showerror(title, str(e))
-                )
-        return wrapper
-    return decorator
-
-
-def safe_gui_thread(title="Error"):
-    def decorator(func):
-        def wrapper(self, *args, **kwargs):
-            def run():
-                try:
-                    func(self, *args, **kwargs)
-                except Exception as e:
-                    logger.exception("Unhandled exception in background task")
-
-                    self.root.after(
-                        0,
-                        lambda e=e: messagebox.showerror(title, str(e))
-                    )
-
-            thread = threading.Thread(target=run, daemon=True)
-            thread.start()
-            return thread
-
-        return wrapper
-    return decorator
 
 
 if __name__ == "__main__":

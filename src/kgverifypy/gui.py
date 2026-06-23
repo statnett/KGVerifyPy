@@ -13,7 +13,7 @@ from kgverifypy.validation_service import ShaclValidationService, ShaclValidatio
 from kgverifypy.csv_utilities import collect_violations, write_shacl_violations_to_csv
 from kgverifypy.data_handler import DataHandler, DatasetConfig
 from kgverifypy.namespaces import compare_namespaces, all_namespaces_match, format_namespace_matrix
-from kgverifypy.gui_utilites import CollapsibleSection, ProgressTimerDialog, safe_gui_call, safe_gui_thread
+from kgverifypy.gui_utilites import CollapsibleSection, ProgressTimerDialog
 import logging
 
 
