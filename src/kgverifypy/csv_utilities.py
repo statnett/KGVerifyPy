@@ -1,3 +1,5 @@
+"""Utilities for reorganising the SHACL validation results into table format for CSV output."""
+
 from rdflib import Graph, URIRef, RDF, Node
 from pathlib import Path
 from dataclasses import dataclass, asdict
@@ -16,13 +18,16 @@ PREDICATE_MAP = {
 
 @dataclass
 class ConstraintViolation:
+    """Dataclass to hold details of a single SHACL constraint violation."""
+    
     subject_uuid: str
     predicate: str
     object: str
-    constraint_component: str
-    shape: str
-    severity: str
+    constraint_component: str   # The type of contstraint that was violated (e.g., sh:MinCountConstraintComponent)
+    shape: str  # The SHACL shape that was violated (e.g., sh:MinCountConstraintComponent)
+    severity: str   # The severity of the violation (e.g., sh:Violation, sh:Warning, sh:Info)
     message: str
+
 
 def extract_violations_from_graph(graph: Graph, subject: Node) -> ConstraintViolation:
     """Extracts violation details from a SHACL result RDF graph and subject node.
@@ -34,7 +39,7 @@ def extract_violations_from_graph(graph: Graph, subject: Node) -> ConstraintViol
     Returns:
         ConstraintViolation: A dataclass instance containing the extracted violation details.
     """
-    data = {}
+    data: dict[str, str] = {}
     for key, value in PREDICATE_MAP.items():
         temp_list = list(graph.objects(subject, URIRef(value)))
         if len(temp_list) == 1:
@@ -45,6 +50,7 @@ def extract_violations_from_graph(graph: Graph, subject: Node) -> ConstraintViol
             data[key] = ", ".join(str(item) for item in temp_list)
 
     return ConstraintViolation(**data)
+
 
 def collect_violations(graph: Graph) -> list[ConstraintViolation]:
     """Collect all violations from a SHACL result RDF graph.
@@ -80,10 +86,3 @@ def write_shacl_violations_to_csv(violations: list[ConstraintViolation], output_
 
 if __name__ == "__main__":
     print("Utilities for outputting constraint violations to CSV.")
-    datafile = Path.cwd().parent / "validation_results.json"
-    g = Graph()
-    g.parse(datafile, format="json-ld")
-    violations = collect_violations(g)
-    print(f"Collected {len(violations)} violations.")
-    output_csv = Path.cwd() / "violations_output.csv"
-    write_shacl_violations_to_csv(violations, output_csv)

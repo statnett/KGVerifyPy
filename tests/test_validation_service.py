@@ -8,6 +8,7 @@ from src.kgverifypy.validation_service import (
     ShaclValidationService, 
     find_focus_nodes, 
     summarize_validation_results,
+    add_datatypes_from_context
 )
 
 PATCH_LOCATION = "src.kgverifypy.validation_service"
@@ -422,15 +423,11 @@ def test_find_focus_nodes_shapetypes(shape_type: URIRef, shape_triples: list[tup
     data = Graph()
     shapes = Graph()
 
-    # Add data triples
     data.add((URIRef("http://example.org/noise"), RDF.type, URIRef("http://example.org/Noise")))  # Extra triple for noise
     for s, p, o in data_triples:
         data.add((s, p, o))
 
-    # Create shape
     shapes.add((shape_type, RDF.type, SH.NodeShape))
-
-    # Add shape triples
     for p, o in shape_triples:
         shapes.add((shape_type, p, o))
 
@@ -490,11 +487,9 @@ def test_find_focus_nodes_multipleshapes(shape_defs: dict, data_triples: list[tu
     data = Graph()
     shapes = Graph()
 
-    # Add data
     for s, p, o in data_triples:
         data.add((s, p, o))
 
-    # Add shapes
     for shape, triples in shape_defs.items():
         shapes.add((shape, RDF.type, SH.NodeShape))
         for p, o in triples:
@@ -531,18 +526,15 @@ def test_find_focus_nodes_nodeshape_propertyshape_ordering() -> None:
     data = Graph()
     shapes = Graph()
 
-    # Data
     EX = Namespace("http://example.org/")
     data.add((EX.a, RDF.type, EX.Person))
     data.add((EX.s, EX.knows, EX.o))
 
-    # NodeShape
     EX = Namespace("http://example.org/")
     shape1 = EX.NodeShape1
     shapes.add((shape1, RDF.type, SH.NodeShape))
     shapes.add((shape1, SH.targetClass, EX.Person))
 
-    # PropertyShape
     shape2 = EX.PropShape2
     shapes.add((shape2, RDF.type, SH.PropertyShape))
     shapes.add((shape2, SH.targetSubjectsOf, EX.knows))
@@ -557,11 +549,9 @@ def test_find_focus_nodes_blanknodeshape() -> None:
     data = Graph()
     shapes = Graph()
 
-    # Data
     EX = Namespace("http://example.org/")
     data.add((EX.a, RDF.type, EX.Person))
 
-    # Blank node shape
     shape = BNode()
     shapes.add((shape, RDF.type, SH.NodeShape))
     shapes.add((shape, SH.targetClass, EX.Person))
@@ -619,6 +609,53 @@ def test_summarize_validation_results_acceptssubclasses() -> None:
     result = summarize_validation_results(graph)
 
     assert result == [(EX.ConstraintA, 1)]
+
+
+# Unit tests add_datatypes_from_context
+@pytest.mark.parametrize("graph", [None, Graph()])
+@patch(f"{PATCH_LOCATION}.enrich_graph_datatypes")
+@patch(f"{PATCH_LOCATION}.extract_datatype_map")
+@patch(f"{PATCH_LOCATION}.align_cgmes_namespaces")
+@patch(f"{PATCH_LOCATION}.load_json_from_url")
+def test_add_datatypes_from_context_emptygraph(mock_load_json: MagicMock, mock_align_namespaces: MagicMock, mock_extract_datatype_map: MagicMock, mock_enrich_graph_datatypes: MagicMock, graph: Graph | None) -> None:
+    context_data = {"@context": {"ex": "http://example.org/"}}
+
+    # Pylance silenced for testing wrong input type
+    add_datatypes_from_context(graph, context_data) # type: ignore
+
+    mock_load_json.assert_not_called()
+    mock_align_namespaces.assert_not_called()
+    mock_extract_datatype_map.assert_not_called()
+    mock_enrich_graph_datatypes.assert_not_called()
+
+    if graph:
+        assert len(graph) == 0  # Graph should remain empty
+
+
+@pytest.mark.parametrize("context", [True, False])
+@patch(f"{PATCH_LOCATION}.enrich_graph_datatypes")
+@patch(f"{PATCH_LOCATION}.extract_datatype_map")
+@patch(f"{PATCH_LOCATION}.align_cgmes_namespaces")
+@patch(f"{PATCH_LOCATION}.load_json_from_url")
+def test_add_datatypes_from_context_context(mock_load_json: MagicMock, mock_align_namespaces: MagicMock, mock_extract_datatype_map: MagicMock, mock_enrich_graph_datatypes: MagicMock, context: bool) -> None:
+    graph = Graph()
+    graph.add((URIRef("http://example.org/a"), RDF.type, URIRef("http://example.org/Person")))
+    context_data = {"@context": {"ex": "http://example.org/"}} if context else None
+    mock_load_json.return_value = context_data
+    mock_extract_datatype_map.return_value = {"ex:Person": "xsd:string"}
+
+    add_datatypes_from_context(graph, context_data)
+
+    if context:
+        mock_load_json.assert_not_called()
+    else:
+        mock_load_json.assert_called_once_with('https://raw.githack.com/Sveino/Inst4CIM-KG/develop/rdf-improved/cim-context-new.jsonld')
+
+    mock_align_namespaces.assert_called_once_with(graph, context_data)
+    mock_extract_datatype_map.assert_called_once_with(context_data)
+    mock_enrich_graph_datatypes.assert_called_once_with(graph, mock_extract_datatype_map.return_value)
+
+    assert len(graph) == 1
 
 
 if __name__ == "__main__":

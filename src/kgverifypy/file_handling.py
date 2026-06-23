@@ -1,3 +1,5 @@
+"""File handling utilities for KGVerifyPy."""
+
 import os
 from rdflib import Graph, Dataset
 from pathlib import Path
@@ -60,6 +62,7 @@ def load_json(json_file_path: str | Path) -> dict:
     
     Parameters:
         json_file_path (str|Path): The path to the JSON file.
+        
     Returns:
         dict: The data loaded from the JSON file.
     """
@@ -71,6 +74,7 @@ def load_json(json_file_path: str | Path) -> dict:
         logger.error(f"JSON file not found: {json_file_path}")
         return {}
 
+
 def save_json(data: dict, json_file_path: str | Path) -> None:
     """Save a dictionary as a JSON file.
     
@@ -80,20 +84,6 @@ def save_json(data: dict, json_file_path: str | Path) -> None:
     """
     with open(json_file_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=4)
-
-
-
-# Not used, but may be needed in the future if we want to do things that are done via a CIMProcessor.
-# def make_data_graph_from_cimxml_old(files: Union[str, Path, Sequence[Union[str, Path]]]) -> Graph:
-#     pr_list = load_graphs_from_cimxml(files)
-
-#     data = Graph()
-#     for pr in pr_list:
-#         for prefix, namespace in pr.graph.namespace_manager.store.namespaces():
-#             data.bind(prefix, namespace)
-#         data += pr.graph
-
-#     return data
 
 
 if __name__ == "__main__":

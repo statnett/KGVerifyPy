@@ -2,12 +2,13 @@
 
 from dataclasses import dataclass
 from collections import Counter
-from rdflib import Graph, URIRef
+from rdflib import Graph, URIRef, Node
 from rdflib.namespace import RDF, SH
 from pyshacl import validate
 from owlrl import DeductiveClosure, RDFS_Semantics
-from kgverifypy.datatype_enrichment import add_datatypes_from_context
-from typing import Optional
+from kgraphpy.jsonld_utilities import load_json_from_url, extract_datatype_map, enrich_graph_datatypes, DEFAULT_CONTEXT_LINK
+from kgverifypy.namespaces import align_cgmes_namespaces
+from typing import Optional, Sequence
 import logging
 
 logger = logging.getLogger("primary")
@@ -16,8 +17,8 @@ logger = logging.getLogger("primary")
 class FocusNodeSummary:
 	"""Summary statistics for SHACL shape focus-node coverage."""
 
-	total_shapes: int
-	shapes_with_focus_nodes: int
+	total_shapes: int	# Total number of shapes in the SHACL graph.
+	shapes_with_focus_nodes: int	# Number of shapes that have explicit focus nodes in the data graph.
 
 
 @dataclass(frozen=True)
@@ -26,7 +27,7 @@ class ShaclValidationResult:
 
 	conforms: bool
 	results_graph: Graph | None
-	summary_validation_results: Optional[list[tuple[URIRef, int]]] = None
+	summary_validation_results: Optional[Sequence[tuple[Node, int]]] = None
 
 
 class ShaclValidationService:
@@ -63,6 +64,7 @@ class ShaclValidationService:
 		if data_graph is None or rdfs_graph is None:
 			return
 		
+		logger.info("Expanding data graph with RDFS semantics.")
 		for prefix, namespace in rdfs_graph.namespace_manager.store.namespaces():
 			data_graph.namespace_manager.bind(prefix, namespace, override=False)
 		data_graph += rdfs_graph
@@ -82,9 +84,9 @@ class ShaclValidationService:
 		if data_graph is None or shacl_graph is None:
 			return None
 
-		shape_info = find_focus_nodes(data_graph, shacl_graph)
-		total_shapes = len(shape_info)
-		shapes_with_focus_nodes = sum(1 for _, focus_nodes in shape_info if focus_nodes)
+		shape_info: list[tuple[Node, set[Node]]] = find_focus_nodes(data_graph, shacl_graph)
+		total_shapes: int = len(shape_info)
+		shapes_with_focus_nodes: int = sum(1 for _, focus_nodes in shape_info if focus_nodes)
 		return FocusNodeSummary(
 			total_shapes=total_shapes,
 			shapes_with_focus_nodes=shapes_with_focus_nodes,
@@ -104,7 +106,7 @@ class ShaclValidationService:
 		if data_graph is None or shacl_graph is None:
 			return None
 		
-		inference = "rdfs" if rdfs_graph is not None else "none"
+		inference: str = "rdfs" if rdfs_graph is not None else "none"
 			
 		conforms_info, results_graph, _ = validate(
 			data_graph,
@@ -114,9 +116,9 @@ class ShaclValidationService:
 			debug=False,
 		)
 		
-		conforms = conforms_info if isinstance(conforms_info, bool) else False
-		graph_result = results_graph if isinstance(results_graph, Graph) else None
-		summary_results = summarize_validation_results(graph_result) if graph_result is not None else None	
+		conforms: bool = conforms_info if isinstance(conforms_info, bool) else False
+		graph_result: Graph | None = results_graph if isinstance(results_graph, Graph) else None
+		summary_results: list[tuple[Node, int]] | None = summarize_validation_results(graph_result) if graph_result is not None else None	
 		
 		return ShaclValidationResult(conforms=conforms, results_graph=graph_result, summary_validation_results=summary_results)
 	
@@ -138,7 +140,7 @@ class ShaclValidationService:
 		return True
 
 
-def find_focus_nodes(data_graph: Graph, shapes_graph: Graph) -> list[tuple[str, set[str]]]:
+def find_focus_nodes(data_graph: Graph, shapes_graph: Graph) -> list[tuple[Node, set[Node]]]:
 	"""Find explicit focus nodes for each shape in the SHACL shapes graph based on the data graph.
 	
 	Implicit focus nodes that are generated dynamically during validation are not captured by this function. 
@@ -148,18 +150,18 @@ def find_focus_nodes(data_graph: Graph, shapes_graph: Graph) -> list[tuple[str, 
 		shapes_graph (Graph): The RDF graph containing the SHACL shapes.
 
 	Returns:
-		list[tuple[str, set[str]]]: List of shape identifiers with focus nodes associated with each shape.
+		list[tuple[Node, set[Node]]]: List of shape identifiers with focus nodes associated with each shape.
 	"""
 	if data_graph is None or shapes_graph is None:
 		return []
 	
-	shapes = list(shapes_graph.subjects(RDF.type, SH.NodeShape)) + \
+	shapes: list[Node] = list(shapes_graph.subjects(RDF.type, SH.NodeShape)) + \
 				list(shapes_graph.subjects(RDF.type, SH.PropertyShape))
 
-	results = []
+	results: list[tuple[Node, set[Node]]] = []
 
 	for shape in shapes:
-		focus_nodes = set()
+		focus_nodes: set[Node] = set()
 
 		# sh:targetClass
 		for cls in shapes_graph.objects(shape, SH.targetClass):
@@ -185,23 +187,41 @@ def find_focus_nodes(data_graph: Graph, shapes_graph: Graph) -> list[tuple[str, 
 	return results
 
 
-def summarize_validation_results(graph: Graph) -> list[tuple[URIRef, int]]:
+def summarize_validation_results(graph: Graph) -> list[tuple[Node, int]]:
 	"""Summarize the validation results by counting occurrences of each constraint component.
 
 	Parameters:
 		graph (Graph): The RDF graph containing the SHACL validation results.
 
 	Returns:
-		list[tuple[URIRef, int]]: The constraint component URIs and their counts.
+		list[tuple[Node, int]]: The constraint component URIs and their counts.
 	"""
 	if not isinstance(graph, Graph):
 		return []
 
-	counter_errortype = Counter()
+	counter_errortype: Counter[Node] = Counter()
 	for _, _, error_type in graph.triples((None, SH.sourceConstraintComponent, None)):
 		counter_errortype[error_type] += 1
 	
 	return counter_errortype.most_common()
+
+
+def add_datatypes_from_context(graph: Graph, context_data: Optional[dict] = None) -> None:
+	"""Add datatypes to the RDF graph based on a provided context or a default context.
+	
+	Parameters:
+		graph (Graph): The RDF graph to which datatypes will be added.
+		context_data (Optional[dict]): The context data to use for adding datatypes. If None, a default context is applied.
+	"""
+	if graph is None or len(graph) == 0:
+		return
+
+	if context_data is None:
+		context_data = load_json_from_url(DEFAULT_CONTEXT_LINK)
+
+	align_cgmes_namespaces(graph, context_data)
+	datatype_map: dict[str, str] = extract_datatype_map(context_data)
+	enrich_graph_datatypes(graph, datatype_map)
 
 if __name__ == "__main__":
 	print("Classes for handling pyshacl validation logic.")

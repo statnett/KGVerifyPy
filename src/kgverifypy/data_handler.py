@@ -1,10 +1,14 @@
+"""Handling the loading and management of data files, SHACL files, RDFS files, and datatype JSON files for the GUI."""
+
 from rdflib import Graph
 from kgverifypy.file_handling import make_graphs_from, merge_trig_graphs, load_json
-from typing import Callable, TypeVar, Optional
+from typing import TypeVar, Optional
 from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class DatasetConfig:
+    """Configuration for a dataset to be loaded in the GUI."""
+    
     title: str  # Title to display in the UI file entry for the data
     config_key: str # Key to use when loading and saving the file path in the file_config
     multiple: bool  # Whether to allow multiple files to be selected
@@ -20,6 +24,8 @@ class DatasetConfig:
 T = TypeVar('T')
 
 class DataHandler:
+    """For managing the loading and storage of data files, SHACL files, RDFS files, and datatype JSON files for the GUI."""
+
     def __init__(self) -> None:
         self.data_files: list[str] = []
         self.rdfs_files: list[str] = []

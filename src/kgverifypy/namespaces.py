@@ -1,5 +1,9 @@
-from kgraphpy.namespaces import CGMES_CIM, CGMES_EU, STANDARD_NAMESPACES, PERSISTENT_NAMESPACES, CGMES_NAMESPACES
+"""Module for handling namespaces."""
+
+from kgraphpy.namespaces import CGMES_CIM, CGMES_EU
 from rdflib import Graph, URIRef
+from rdflib.namespace import NamespaceManager
+from typing import Any
 import logging
 
 logger = logging.getLogger("primary")
@@ -23,7 +27,7 @@ def align_cgmes_namespaces(graph: Graph, context: dict) -> None:
         logger.error(f"Context has unexpected structure. No alignment performed.")
         return
     
-    namespaces = graph.namespace_manager
+    namespaces: NamespaceManager = graph.namespace_manager
     if namespaces.store.namespace("cim") == URIRef(CGMES_CIM):
         context["@context"]["cim"] = CGMES_CIM
 
@@ -63,14 +67,14 @@ def compare_namespaces(graphs: dict[str, Graph | None]) -> list[dict]:
                 - "missing": A list of graph names where the namespace is missing.
     """
 
-    ns_maps = {name: _get_ns_map(g) for name, g in graphs.items() if g is not None}
+    ns_maps: dict[str, dict[str, str]] = {name: _get_ns_map(g) for name, g in graphs.items() if g is not None}
 
-    all_uris = set().union(*(m.keys() for m in ns_maps.values()))
+    all_uris: set[str] = set().union(*(m.keys() for m in ns_maps.values()))
 
-    report = []
+    report: list[dict] = []
 
     for uri in sorted(all_uris):
-        row = {
+        row: dict[str, Any] = {
             "uri": uri,
             "presence": {},
             "missing": []
@@ -110,20 +114,20 @@ def format_namespace_matrix(report: list[dict], graph_names: list[str]) -> str:
 	Returns:
 		str: A formatted string representing the namespace comparison matrix.
 	"""
-	max_uri_len = max(len(row["uri"]) for row in report) if report else 0
-	col_width = 10
+	max_uri_len: int = max(len(row["uri"]) for row in report) if report else 0
+	col_width: int = 10
 
-	lines = []
+	lines: list[str] = []
 
-	header = "Namespace".ljust(max_uri_len) + " | " + " | ".join(name.upper().center(col_width) for name in graph_names)
+	header: str = "Namespace".ljust(max_uri_len) + " | " + " | ".join(name.upper().center(col_width) for name in graph_names)
 	lines.append(header)
 	lines.append("-" * len(header))
 
 	for row in report:
 		if row["missing"]:
-			uri_part = row["uri"].ljust(max_uri_len)
+			uri_part: str = row["uri"].ljust(max_uri_len)
 
-			cols = []
+			cols: list[str] = []
 			for name in graph_names:
 				prefix = row["presence"].get(name)
 				if prefix:
@@ -131,7 +135,7 @@ def format_namespace_matrix(report: list[dict], graph_names: list[str]) -> str:
 				else:
 					cols.append("✘".center(col_width))
 
-			line = uri_part + " | " + " | ".join(cols)
+			line: str = uri_part + " | " + " | ".join(cols)
 			lines.append(line)	
 
 	return "\n".join(lines)

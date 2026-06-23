@@ -4,7 +4,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk, messagebox, scrolledtext
 import threading
 import queue
-from typing import Callable, Optional
+from typing import Callable, Optional, TYPE_CHECKING
 from rdflib import Graph
 from pathlib import Path
 from rdflib.namespace import SH
@@ -16,9 +16,13 @@ from kgverifypy.namespaces import compare_namespaces, all_namespaces_match, form
 from kgverifypy.gui_utilites import CollapsibleSection, ProgressTimerDialog
 import logging
 
+if TYPE_CHECKING:
+	from kgverifypy.validation_service import FocusNodeSummary
+	from kgverifypy.csv_utilities import ConstraintViolation
 
 logger = logging.getLogger("primary")
 
+# Variables
 FILE_CONFIG_PATH = Path(__file__).parent / "file_config.json"
 DEFAULT_MAIN_GEOMETRY = "760x700"
 DEFAULT_MAIN_MIN_SIZE = (680, 600)
@@ -33,13 +37,13 @@ class CIMShaclGUI:
 	"""GUI for running SHACL validations."""
 
 	def __init__(self, root: Optional[tk.Tk] = None) -> None:
-		self.datahandler = DataHandler()
-		self.file_config = load_json(FILE_CONFIG_PATH)
-		self.root = root or tk.Tk()
+		self.datahandler: DataHandler = DataHandler()
+		self.file_config: dict = load_json(FILE_CONFIG_PATH)
+		self.root: tk.Tk = root or tk.Tk()
 		self._configure_root_window()
 		self._configure_styles()
 		self._init_variables()
-		self.validation_service = ShaclValidationService()
+		self.validation_service: ShaclValidationService = ShaclValidationService()
 		self._restore_format_from_file_config()
 
 		self._build_gui()
@@ -56,7 +60,7 @@ class CIMShaclGUI:
 
 	def _configure_styles(self) -> None:
 		"""Configure the various styles for the GUI."""
-		self.style = ttk.Style(self.root)
+		self.style: ttk.Style = ttk.Style(self.root)
 		self.style.configure("TLabel", font=UI_FONT)
 		self.style.configure("TButton", font=UI_FONT)
 		self.style.configure("TRadiobutton", font=UI_FONT)
@@ -65,30 +69,30 @@ class CIMShaclGUI:
 
 	def _init_variables(self) -> None:
 		"""Initialize the Tkinter variables used in the GUI."""
-		self.data_format = tk.StringVar(value="cimxml")
-		self.shacl_format = tk.StringVar(value="ttl")
-		self.data_var = tk.StringVar(value="No files selected")
-		self.shacl_var = tk.StringVar(value="No files selected")
-		self.rdfs_var = tk.StringVar(value="No files selected")
-		self.datatype_var = tk.StringVar(value="If left empty a default context will be used")
-		self.validation_output_path = tk.StringVar(value=DEFAULT_VALIDATION_OUTPUT)
-		self.validation_output_format = tk.StringVar(value="json-ld")
-		self.add_datatypes_var = tk.BooleanVar(value=False)
-		self.custom_url_var = tk.StringVar()
-		self.csv_report_var = tk.BooleanVar(value=False)
+		self.data_format: tk.StringVar = tk.StringVar(value="cimxml")
+		self.shacl_format: tk.StringVar = tk.StringVar(value="ttl")
+		self.data_var: tk.StringVar = tk.StringVar(value="No files selected")
+		self.shacl_var: tk.StringVar = tk.StringVar(value="No files selected")
+		self.rdfs_var: tk.StringVar = tk.StringVar(value="No files selected")
+		self.datatype_var: tk.StringVar = tk.StringVar(value="If left empty a default context will be used")
+		self.validation_output_path: tk.StringVar = tk.StringVar(value=DEFAULT_VALIDATION_OUTPUT)
+		self.validation_output_format: tk.StringVar = tk.StringVar(value="json-ld")
+		self.add_datatypes_var: tk.BooleanVar = tk.BooleanVar(value=False)
+		self.custom_url_var: tk.StringVar = tk.StringVar()
+		self.csv_report_var: tk.BooleanVar = tk.BooleanVar(value=False)
 
 	def _restore_format_from_file_config(self) -> None:
 		"""Restore the last used data and SHACL formats from the file configuration, if available."""
 		if not self.file_config:
 			return
 		
-		data_cfg = self.file_config.get("data", {})
-		data_format = data_cfg.get("format", "cimxml") if data_cfg else "cimxml"
+		data_cfg: dict = self.file_config.get("data", {})
+		data_format: str = data_cfg.get("format", "cimxml") if data_cfg else "cimxml"
 		self.data_format.set(data_format)
 		self.datahandler.data_format = data_format
 
-		shacl_cfg = self.file_config.get("shacl", {})
-		shacl_format = shacl_cfg.get("format", "ttl") if shacl_cfg else "ttl"
+		shacl_cfg: dict = self.file_config.get("shacl", {})
+		shacl_format: str = shacl_cfg.get("format", "ttl") if shacl_cfg else "ttl"
 		self.shacl_format.set(shacl_format)
 		self.datahandler.shacl_format = shacl_format
 
@@ -96,14 +100,14 @@ class CIMShaclGUI:
 
 	def _build_gui(self) -> None:
 		"""Build the GUI layout and components."""
-		frame = ttk.Frame(self.root, padding=12)
+		frame: ttk.Frame = ttk.Frame(self.root, padding=12)
 		frame.grid(row=0, column=0, sticky="nsew")
 
 		self.root.columnconfigure(0, weight=1)
 		self.root.rowconfigure(0, weight=1)
 		frame.columnconfigure(0, weight=1)
 
-		row = 0
+		row: int = 0
 
 		# row gets incremented in the section methods so that the next section is placed correctly below the previous one.
 		row = self._file_selection_section(frame, row, "Data", self.data_format, self.data_var, [("CIMXML", "cimxml"), ("RDF/XML", "xml"), ("JSON-LD", "json-ld"), ("TRIG", "trig"), ("TTL", "ttl")], self._select_data_files)
@@ -132,7 +136,7 @@ class CIMShaclGUI:
 		Returns:
 			int: The next row index after the section components, to allow for correct placement of subsequent sections.
 		"""
-		row = start_row
+		row: int = start_row
 
 		ttk.Label(frame, text=f"{title} files:").grid(row=row, column=0, sticky="w", pady=(10, 6))
 		row = self._make_radio_group(frame, row +1, format_var, format_options)
@@ -150,7 +154,7 @@ class CIMShaclGUI:
 		Returns:
 			int: The next row index after the section components, to allow for correct placement of subsequent sections.
 		"""
-		row = start_row
+		row: int = start_row
 		row = self._add_file_picker_row(frame, row, self.rdfs_var, self._select_rdfs_files)		
 		return row +1
 
@@ -164,7 +168,7 @@ class CIMShaclGUI:
 		Returns:
 			int: The next row index after the section components, to allow for correct placement of subsequent sections.
 		"""
-		row = start_row
+		row: int = start_row
 
 		check = ttk.Checkbutton(frame, text="Add datatypes", variable=self.add_datatypes_var)
 		check.grid(row=row, column=0, sticky="w")
@@ -184,7 +188,7 @@ class CIMShaclGUI:
 		Returns:
 			int: The next row index after the section components, to allow for correct placement of subsequent sections.
 		"""
-		row = start_row
+		row: int = start_row
 
 		ttk.Label(frame, text="Validation output file path:").grid(row=row +1, column=0, sticky="w", pady=(10, 6))
 		row = self._make_radio_group(frame, row +2, self.validation_output_format, [("JSON-LD", "json-ld"), ("TTL", "ttl"), ("RDF/XML", "xml")])
@@ -261,7 +265,7 @@ class CIMShaclGUI:
 		try:
 			func()
 		except Exception as e:
-			logger.exception("Unhandled exception")
+			logger.exception("Error occured when loading files.")
 			self.root.after(0, lambda e=e: messagebox.showerror(title, str(e)))
 
 	def _select_files_by(self, dataset: str) -> None:
@@ -271,13 +275,13 @@ class CIMShaclGUI:
 			dataset (str): The dataset type key to select files for "data", "shacl", "rdfs" or "datatypes".
 		"""
 		try:
-			dataset_config = DATASET_SELECTORS[dataset]
+			dataset_config: DatasetConfig = DATASET_SELECTORS[dataset]
 		except KeyError:
 			return
 
-		initial_dir = _load_dir_from_config(self.file_config, dataset_config.config_key)
-		dialog = filedialog.askopenfilenames if dataset_config.multiple else filedialog.askopenfilename		
-		result = dialog(initialdir=initial_dir, title=dataset_config.title)
+		initial_dir: str = _load_dir_from_config(self.file_config, dataset_config.config_key)
+		dialog: Callable[..., str | tuple[str, ...]] = filedialog.askopenfilenames if dataset_config.multiple else filedialog.askopenfilename		
+		result: str | tuple[str, ...] = dialog(initialdir=initial_dir, title=dataset_config.title)
 
 		if not result:
 			return
@@ -303,19 +307,19 @@ class CIMShaclGUI:
 			files (str | list[str]): The selected file path(s) as a string or list of strings. This cannot be None or empty.
 			dataset_config (DatasetConfig): The configuration for the dataset type being processed.
 		"""
-		fmt = None
+		fmt: str|None = None
 
 		if dataset_config.format_attr:
-			fmt_getter = getattr(self, dataset_config.format_attr)
+			fmt_getter: tk.StringVar = getattr(self, dataset_config.format_attr)
 			fmt = fmt_getter.get()
 
-		setter = getattr(self.datahandler, dataset_config.set_method)
+		setter: Callable[..., None] = getattr(self.datahandler, dataset_config.set_method)
 		if fmt is not None:
 			setter(files, fmt)
 		else:
 			setter(files)
 
-		var = getattr(self, dataset_config.var_attr)
+		var: tk.StringVar = getattr(self, dataset_config.var_attr)
 		if isinstance(files, list) and len(files) > 1:
 			var.set(f"{len(files)} files selected")
 		else:
@@ -324,7 +328,8 @@ class CIMShaclGUI:
 		first = files[0] if isinstance(files, list) else files
 		_save_config_info(self.file_config, first, dataset_config.config_key, fmt)
 
-		getattr(self.datahandler, dataset_config.load_method)()
+		getattr(self.datahandler, dataset_config.load_method)()	# Running the appropriate load method.
+
 
 	def _run_threaded(self, dataset: str, files: str | list[str], dataset_config: DatasetConfig) -> None:
 		"""Run the file selection and loading logic in a separate thread, showing a progress dialog while the loading is in progress.
@@ -334,7 +339,7 @@ class CIMShaclGUI:
 			files (str | list[str]): The selected file path(s) as a string or list of strings. This cannot be None or empty.
 			dataset_config (DatasetConfig): The configuration for the dataset type being processed.
 		"""
-		self.loading_window = ProgressTimerDialog(
+		self.loading_window: ProgressTimerDialog = ProgressTimerDialog(
 			self.root,
 			title=dataset_config.loading_title,
 			message=dataset_config.loading_message,
@@ -347,10 +352,11 @@ class CIMShaclGUI:
 				title=f"Error loading {dataset} files"
 			)
 
-		thread = threading.Thread(target=task, daemon=True)
+		thread: threading.Thread = threading.Thread(target=task, daemon=True)
 		thread.start()
 
 		self._check_thread(thread)
+
 
 	def _check_thread(self, thread: threading.Thread) -> None:
 		"""Check if the background thread is still running, and if not, close the loading window.
@@ -379,16 +385,17 @@ class CIMShaclGUI:
 		"""Handler for selecting datatype context files."""
 		self._select_files_by("datatypes")
 
-
 	def _prepare_data_graph(self) -> None:
 		"""Prepare the data graph for validation by applying any selected enrichment options."""
 		if self.datahandler.data_graph is None:
 			return
 		
-		context_data = self.datahandler.datatypes if self.datahandler.datatype_file else None
+		context_data: dict | None = self.datahandler.datatypes if self.datahandler.datatype_file else None
 		self.validation_service.prepare_data_for_validation(self.datahandler.data_graph, self.datahandler.rdfs_graph, add_datatypes=self.add_datatypes_var.get(), context_data=context_data)
 
+
 	# Output methods
+
 	def _show_output_message(self, message: str) -> None:
 		"""Helper method to show a message in the output text area of the validation dialog.
 		
@@ -401,9 +408,9 @@ class CIMShaclGUI:
 		self.output.config(state=tk.DISABLED)
 
 
-	def _show_namespace_report(self):
+	def _show_namespace_report(self) -> None: 
 		"""Generate and display a report comparing the namespaces used in the data graphs, SHACL graphs and RDFS graphs."""
-		graphs = {
+		graphs: dict[str, Graph|None] = {
 			"data": self.datahandler.data_graph,
 			"shacl": self.datahandler.shacl_graph
 		}
@@ -411,17 +418,17 @@ class CIMShaclGUI:
 		if self.datahandler.rdfs_graph is not None:
 			graphs["rdfs"] = self.datahandler.rdfs_graph
 
-		report = compare_namespaces(graphs)
+		report: list[dict[str, str]] = compare_namespaces(graphs)
 
 		if all_namespaces_match(report):
 			messagebox.showinfo("Namespace Check", "✅ All namespaces match.")
 			return
 
-		matrix_text = format_namespace_matrix(report, list(graphs.keys()))
+		matrix_text: str = format_namespace_matrix(report, list(graphs.keys()))
 
-		win = tk.Toplevel()
+		win: tk.Toplevel = tk.Toplevel()
 		win.title("Namespace Differences")
-		text_area = scrolledtext.ScrolledText(win, wrap=tk.WORD, width=110, height=30, font=("Courier", 15), bg="#f0f0f0", fg="#202020", insertbackground="#202020", relief=tk.SUNKEN, borderwidth=2)
+		text_area: scrolledtext.ScrolledText = scrolledtext.ScrolledText(win, wrap=tk.WORD, width=110, height=30, font=("Courier", 15), bg="#f0f0f0", fg="#202020", insertbackground="#202020", relief=tk.SUNKEN, borderwidth=2)
 		text_area.insert(tk.END, matrix_text)
 		text_area.config(state=tk.DISABLED)
 		text_area.pack(padx=10, pady=10)
@@ -429,14 +436,14 @@ class CIMShaclGUI:
 			
 	def _start_validation(self) -> None:
 		"""Start the SHACL validation process with a progressbar and timer."""
-		self.validation_dialog = ProgressTimerDialog(self.root, title="Running SHACL validation...", message="Large graphs may take a while")
+		self.validation_dialog: ProgressTimerDialog = ProgressTimerDialog(self.root, title="Running SHACL validation...", message="Large graphs may take a while")
 		self.validation_dialog.start()
 		self.validation_dialog.top.geometry(DEFAULT_OUTPUT_GEOMETRY)
 		self.validation_dialog.top.minsize(*DEFAULT_OUTPUT_MIN_SIZE)
 
-		frame = tk.Frame(self.validation_dialog.top)
+		frame: tk.Frame = tk.Frame(self.validation_dialog.top)
 		frame.pack(fill="both", expand=True, padx=10, pady=10)
-		self.output = tk.Text(frame, wrap=tk.WORD, font=OUTPUT_FONT, bg="#f0f0f0", fg="#202020", insertbackground="#202020", relief=tk.SUNKEN, borderwidth=2)
+		self.output: tk.Text = tk.Text(frame, wrap=tk.WORD, font=OUTPUT_FONT, bg="#f0f0f0", fg="#202020", insertbackground="#202020", relief=tk.SUNKEN, borderwidth=2)
 		self.output.pack(fill="both", pady=5)
 		self.output.config(state=tk.DISABLED)
 
@@ -450,11 +457,11 @@ class CIMShaclGUI:
 
 	def _report_focus_nodes(self) -> None:
 		"""Report the total number of shapes and how many have explicit focus nodes in the data graph."""
-		summary = self.validation_service.calculate_focus_nodes(self.datahandler.data_graph, self.datahandler.shacl_graph)
+		summary: FocusNodeSummary | None = self.validation_service.calculate_focus_nodes(self.datahandler.data_graph, self.datahandler.shacl_graph)
 		if summary is None:
 			return
 
-		focus_message = (
+		focus_message: str = (
 			f"Total number of shapes: {summary.total_shapes}\n"
 			f"Shapes with explicit focus nodes in graph: {summary.shapes_with_focus_nodes}\n"
 		)
@@ -463,12 +470,12 @@ class CIMShaclGUI:
 
 	def _process_shacl_validation_async(self) -> None:
 		"""Run the SHACL validation in a separate thread and use a queue to get the results back to the main thread."""
-		self.validation_queue = queue.Queue()
+		self.validation_queue: queue.Queue = queue.Queue()
 
 		def worker():
 
 			try:
-				result = self.validation_service.validate_graphs(
+				result: ShaclValidationResult | None = self.validation_service.validate_graphs(
 					self.datahandler.data_graph,
 					self.datahandler.shacl_graph,
 					self.datahandler.rdfs_graph
@@ -521,7 +528,7 @@ class CIMShaclGUI:
 		Parameters:
 			result (ShaclValidationResult): The result of the SHACL validation process, containing information about the validation outcome and the results graph.
 		"""
-		graph_count = len(self.datahandler.data_graph) if self.datahandler.data_graph else 0
+		graph_count: int = len(self.datahandler.data_graph) if self.datahandler.data_graph else 0
 
 		self._show_output_message(f"SHACL validation completed on {graph_count} triples.")
 		self._show_output_message(f"Conforms: {result.conforms}")
@@ -536,7 +543,7 @@ class CIMShaclGUI:
 		if not result.summary_validation_results:
 			return
 		
-		message = "Summary of validation results (error type and count):\n"
+		message: str = "Summary of validation results (error type and count):\n"
 		for error_type, count in result.summary_validation_results:
 			message += f"{error_type}: {count}\n"
 
@@ -550,13 +557,13 @@ class CIMShaclGUI:
 		Parameters:
 			result (ShaclValidationResult): The result of the SHACL validation process, including the results graph with validation results that can be serialized to a file.
 		"""
-		result_graph = result.results_graph
+		result_graph: Graph | None = result.results_graph
 
 		if result_graph is None or SH.result not in result_graph.predicates():
 			return
 		
-		output_path = self.validation_output_path.get().strip() or DEFAULT_VALIDATION_OUTPUT
-		output_format = self.validation_output_format.get()
+		output_path: str = self.validation_output_path.get().strip() or DEFAULT_VALIDATION_OUTPUT
+		output_format: str = self.validation_output_format.get()
 
 		self._save_validation_results_to_graph(result_graph, output_path, output_format)
 
@@ -572,7 +579,7 @@ class CIMShaclGUI:
 			output_path (str): The file path where the validation results should be saved.
 			output_format (str): The format in which to save the validation results (e.g., "json-ld", "ttl", "xml").
 		"""
-		saved = self.validation_service.serialize_results(result_graph, output_path, output_format)
+		saved: bool = self.validation_service.serialize_results(result_graph, output_path, output_format)
 		if saved:
 			self._show_output_message(f"Validation report saved to: {output_path}")
 
@@ -584,8 +591,8 @@ class CIMShaclGUI:
 			result_graph (Graph): The RDF graph containing the validation results from which to extract SHACL violations for the CSV report.
 			output_path (str): The base file path where the CSV report should be saved (the .csv extension will be added automatically).
 		"""
-		csv_result = collect_violations(result_graph)
-		csv_output_path = output_path.rsplit(".", 1)[0] + ".csv"
+		csv_result: list[ConstraintViolation] = collect_violations(result_graph)
+		csv_output_path: str = output_path.rsplit(".", 1)[0] + ".csv"
 		write_shacl_violations_to_csv(csv_result, csv_output_path)
 		self._show_output_message(f"Validation report saved as CSV to: {csv_output_path}")
 
@@ -605,11 +612,11 @@ class CIMShaclGUI:
 	# Debugging methods kept in case they are needed again in the future, but not currently used in the GUI.
 
 	def _graph_counts_for_debugging(self, top: tk.Toplevel) -> None:
-		data_count = len(self.datahandler.data_graph) if self.datahandler.data_graph else 0
-		rdfs_count = len(self.datahandler.rdfs_graph) if self.datahandler.rdfs_graph else 0
-		shacl_count = len(self.datahandler.shacl_graph) if self.datahandler.shacl_graph else 0
+		data_count: int = len(self.datahandler.data_graph) if self.datahandler.data_graph else 0
+		rdfs_count: int = len(self.datahandler.rdfs_graph) if self.datahandler.rdfs_graph else 0
+		shacl_count: int = len(self.datahandler.shacl_graph) if self.datahandler.shacl_graph else 0
 
-		message = (
+		message: str = (
 			f"Data Graph length: {data_count}\n"
 			f"RDFS Graph length: {rdfs_count}\n"
 			f"SHACL Graph length: {shacl_count}\n\n"

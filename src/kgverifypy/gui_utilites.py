@@ -1,25 +1,23 @@
+"""GUI utilities for KGVerifyPy."""
+
 import tkinter as tk
-from tkinter import ttk, messagebox
-import threading
+from tkinter import ttk
 import time
-from dataclasses import dataclass
 from typing import Callable, Optional
 
-import logging
-
-logger = logging.getLogger("primary")
 
 class CollapsibleSection(ttk.Frame):
 	"""Make a collapsible section."""
+
 	def __init__(self, parent: ttk.Frame, title: str = "Section") -> None:
 		super().__init__(parent)
 
-		self.title = title
-		self.open = False
-		self.style = ttk.Style(self)
+		self.title: str = title
+		self.open: bool = False
+		self.style: ttk.Style = ttk.Style(self)
 		self.style.configure("Toolbutton", font=("TkDefaultFont", 14))
 
-		self.header_btn = ttk.Button(
+		self.header_btn: ttk.Button = ttk.Button(
 			self,
 			text=f"[+] {self.title}",
 			command=self.toggle,
@@ -27,7 +25,7 @@ class CollapsibleSection(ttk.Frame):
 		)
 		self.header_btn.pack(fill="x")
 
-		self.content = ttk.Frame(self)
+		self.content: ttk.Frame = ttk.Frame(self)
 		self.content.columnconfigure(0, weight=1)
 
 	def toggle(self) -> None:
@@ -44,8 +42,9 @@ class CollapsibleSection(ttk.Frame):
 
 class ProgressTimerDialog:
 	"""Create dialog with progress bar and timer for long-running tasks."""
+	
 	def __init__(self, parent: tk.Tk, title: str="Processing...", message: Optional[str] = None, time_fn: Callable[[], float] = time.time) -> None:
-		self.top = tk.Toplevel(parent)
+		self.top: tk.Toplevel = tk.Toplevel(parent)
 		self.top.title(title)
 		self.top.geometry("320x140")
 		self.top.transient(parent)
@@ -54,29 +53,29 @@ class ProgressTimerDialog:
 		if message:
 			ttk.Label(self.top, text=message).pack(pady=(8, 4))
 
-		self.progress = ttk.Progressbar(
+		self.progress: ttk.Progressbar = ttk.Progressbar(
 			self.top,
 			mode="indeterminate",
 			length=260
 		)
 		self.progress.pack(pady=5)
 
-		self.time_label = ttk.Label(self.top, text="Elapsed: 0.0 s")
+		self.time_label: ttk.Label = ttk.Label(self.top, text="Elapsed: 0.0 s")
 		self.time_label.pack(pady=5)
-		self.time_fn = time_fn
+		self.time_fn: Callable[[], float] = time_fn
 
 		# internal state
-		self._job = None
-		self.start_time = time.time()
+		self._job: Optional[str] = None
+		self.start_time: float = time.time()
 
-	# ---------- TIMER ----------
+	# Timer
 	def _format_elapsed(self) -> str:
 		"""Format the elapsed time since the timer was started into a human-readable string.
 		
 		Returns:
 			str: The elapsed time in the format of "Elapsed: X s", "Elapsed: Y min Z s", or "Elapsed: H h M min" depending on the duration.
 		"""
-		elapsed = self.time_fn() - self.start_time
+		elapsed: float = self.time_fn() - self.start_time
 
 		if elapsed < 60:
 			return f"Elapsed: {elapsed:.1f} s"
@@ -93,7 +92,7 @@ class ProgressTimerDialog:
 		self.time_label.config(text=self._format_elapsed())
 		self._job = self.top.after(100, self._tick)
 	
-	# ---------- CONTROL ----------
+	# Public methods
 	def start(self) -> None:
 		"""Start the timer and progress bar."""
 		self.start_time = time.time()

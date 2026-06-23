@@ -80,7 +80,6 @@ def test_make_graph_from_graphcontent(tmp_path: Path, namespace1: str, namespace
         assert g.namespace_manager.store.namespace("ex1") == ex1
 
 
-
 # Unit tests merge_trig_graphs
 # The deprecation warnings are due to rdflib's internal use of deprecated features, and are therefore silenced for the tests for this function.
 @pytest.mark.filterwarnings("ignore:.*default_context.*:DeprecationWarning")
