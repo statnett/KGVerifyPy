@@ -83,6 +83,7 @@ def test_restore_format_from_file_config(file_config: dict, data_fm: str, shacl_
 def test_build_gui_callssectionsinorder(frame_mock: MagicMock) -> None:
     gui = CIMShaclGUI()
     gui.root = Mock()
+    gui.tooltip = Mock()
     mock_frame = frame_mock.return_value
     gui._file_selection_section = Mock(side_effect=[1, 2])  # First call for data file section, second for shacl file section
     gui._add_collapsible_section = Mock(side_effect=[3, 4])
@@ -91,13 +92,14 @@ def test_build_gui_callssectionsinorder(frame_mock: MagicMock) -> None:
     gui._build_gui()
 
     gui._file_selection_section.assert_has_calls([
-        call(mock_frame, 0, "Data", gui.data_format, gui.data_var, [("CIMXML", "cimxml"), ("RDF/XML", "xml"), ("JSON-LD", "json-ld"), ("TRIG", "trig"), ("TTL", "ttl")], gui._select_data_files),
-        call(mock_frame, 1, "SHACL", gui.shacl_format, gui.shacl_var, [("TTL", "ttl"), ("RDF/XML", "xml")], gui._select_shacl_file)
+        call(mock_frame, 0, "Data files:", gui.data_format, gui.data_var, [("CIMXML", "cimxml"), ("RDF/XML", "xml"), ("JSON-LD", "json-ld"), ("TRIG", "trig"), ("TTL", "ttl")], gui._select_data_files),
+        call(mock_frame, 1, "SHACL file:", gui.shacl_format, gui.shacl_var, [("TTL", "ttl"), ("RDF/XML", "xml")], gui._select_shacl_file)
     ])
     gui._add_collapsible_section.assert_has_calls([
         call(mock_frame, 2, "Add RDFS files", gui._rdfs_section),
         call(mock_frame, 3, "Datatype enrichment options", gui._datatype_section)
     ])
+    gui.tooltip.attach.assert_called_once_with(ANY, TOOLTIP_TEXTS["NAMESPACES"])
     gui._validation_output_section.assert_called_once_with(mock_frame, 5)
 
 @patch(f"{PATCH_LOCATION}.ttk.Button")
@@ -175,6 +177,7 @@ def test_datatype_section() -> None:
 # ._validation_output_section
 def test_validation_output_section() -> None:
     gui = CIMShaclGUI()
+    gui.tooltip = Mock()
     gui._make_radio_group = Mock(return_value=1)
     parent = Mock()
 
@@ -183,13 +186,13 @@ def test_validation_output_section() -> None:
                  patch(f"{PATCH_LOCATION}.ttk.Checkbutton") as button_mock:
                     result = gui._validation_output_section(parent, 0)
         
-                    label_mock.assert_called_once_with(parent, text="Validation output file path:")
-                    label_mock.return_value.grid.assert_called_once()
-                    entry_mock.assert_called_once_with(parent, textvariable=gui.validation_output_path)
-                    entry_mock.return_value.grid.assert_called_once()
-                    button_mock.assert_called_once_with(parent, text="CSV report", variable=gui.csv_report_var)
-                    button_mock.return_value.grid.assert_called_once()
-
+    label_mock.assert_called_once_with(parent, text="Validation output file path:")
+    label_mock.return_value.grid.assert_called_once()
+    entry_mock.assert_called_once_with(parent, textvariable=gui.validation_output_path)
+    entry_mock.return_value.grid.assert_called_once()
+    button_mock.assert_called_once_with(parent, text="CSV report", variable=gui.csv_report_var)
+    button_mock.return_value.grid.assert_called_once()
+    gui.tooltip.attach.assert_called_once_with(button_mock.return_value, TOOLTIP_TEXTS["CSV_REPORT"])
     gui._make_radio_group.assert_called_once_with(parent, 2, gui.validation_output_format, [("JSON-LD", "json-ld"), ("TTL", "ttl"), ("RDF/XML", "xml")])
     assert result == 6
 

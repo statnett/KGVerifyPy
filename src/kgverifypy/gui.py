@@ -25,8 +25,8 @@ logger = logging.getLogger("primary")
 
 # Variables
 FILE_CONFIG_PATH = Path(__file__).parent / "file_config.json"
-DEFAULT_MAIN_GEOMETRY = "760x700"
-DEFAULT_MAIN_MIN_SIZE = (680, 600)
+DEFAULT_MAIN_GEOMETRY = "760x760"
+DEFAULT_MAIN_MIN_SIZE = (680, 680)
 DEFAULT_OUTPUT_GEOMETRY = "760x560"
 DEFAULT_OUTPUT_MIN_SIZE = (680, 420)
 DEFAULT_VALIDATION_OUTPUT = "../validation_results.json"
@@ -112,12 +112,14 @@ class CIMShaclGUI:
 		row: int = 0
 
 		# row gets incremented in the section methods so that the next section is placed correctly below the previous one.
-		row = self._file_selection_section(frame, row, "Data", self.data_format, self.data_var, [("CIMXML", "cimxml"), ("RDF/XML", "xml"), ("JSON-LD", "json-ld"), ("TRIG", "trig"), ("TTL", "ttl")], self._select_data_files)
-		row = self._file_selection_section(frame, row, "SHACL", self.shacl_format, self.shacl_var, [("TTL", "ttl"), ("RDF/XML", "xml")], self._select_shacl_file)
+		row = self._file_selection_section(frame, row, "Data files:", self.data_format, self.data_var, [("CIMXML", "cimxml"), ("RDF/XML", "xml"), ("JSON-LD", "json-ld"), ("TRIG", "trig"), ("TTL", "ttl")], self._select_data_files)
+		row = self._file_selection_section(frame, row, "SHACL file:", self.shacl_format, self.shacl_var, [("TTL", "ttl"), ("RDF/XML", "xml")], self._select_shacl_file)
 		row = self._add_collapsible_section(frame, row, "Add RDFS files", self._rdfs_section)
 		row = self._add_collapsible_section(frame, row, "Datatype enrichment options", self._datatype_section)
 		
-		ttk.Button(frame, text="Check namespaces", command=self._show_namespace_report).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(15, 15))
+		namespaces = ttk.Button(frame, text="Check namespaces", command=self._show_namespace_report)
+		namespaces.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(15, 15))
+		self.tooltip.attach(namespaces, TOOLTIP_TEXTS["NAMESPACES"])
 
 		row = self._validation_output_section(frame, row + 1)
 
@@ -140,7 +142,7 @@ class CIMShaclGUI:
 		"""
 		row: int = start_row
 
-		ttk.Label(frame, text=f"{title} files:").grid(row=row, column=0, sticky="w", pady=(10, 6))
+		ttk.Label(frame, text=title).grid(row=row, column=0, sticky="w", pady=(10, 6))
 		row = self._make_radio_group(frame, row +1, format_var, format_options)
 		row = self._add_file_picker_row(frame, row, file_var, select_command)
 
@@ -201,6 +203,7 @@ class CIMShaclGUI:
 
 		check = ttk.Checkbutton(frame, text="CSV report", variable=self.csv_report_var)
 		check.grid(row=row +4, column=0, sticky="w", pady=(10, 6))
+		self.tooltip.attach(check, TOOLTIP_TEXTS["CSV_REPORT"])
 
 		return row +5
 	

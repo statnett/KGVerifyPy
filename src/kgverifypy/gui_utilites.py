@@ -1,7 +1,7 @@
 """GUI utilities for KGVerifyPy."""
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
 import time
 from typing import Callable, Optional, Generator
 
