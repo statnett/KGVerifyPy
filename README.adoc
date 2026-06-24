@@ -96,7 +96,7 @@ python main.py
 
 Add one or more data files and a SHACL file using the respective browse buttons. 
 
-= RDFS files 
+=== RDFS files 
 For expansion of the data graphs with inferred (implicit) data, one or more RDFS files can be loaded.
 
 The graphs are expanded using the owlrl library, like this:
@@ -108,7 +108,7 @@ DeductiveClosure(RDFS_Semantics).expand(graph)
 
 The RDFS graph is then added into the validation process done by pySHACL.
 
-= Datatypes
+=== Datatypes
 Datatypes can be added to the graph by checking the add datatypes box. If a custom context is not provided a 
 https://raw.githack.com/Sveino/Inst4CIM-KG/develop/rdf-improved/cim-context-new.jsonld[default context] is automatically used.
 The default context is specific to the CIM model and is therefore not applicable for non-CIM data.
@@ -116,23 +116,23 @@ The default context is specific to the CIM model and is therefore not applicable
 Note concerning namespaces: 
 The default context uses the standard namespaces for cim and eu:
 
-- cim: "https://cim.ucaiug.io/ns#"
-- eu: "https://cim.ucaiug.io/ns/eu#"
+- cim: +https://cim.ucaiug.io/ns#+
+- eu: +https://cim.ucaiug.io/ns/eu#+
 
 However, because these namespaces are assumed to have the same datatype information they are also allowed:
 
-- cim: "http://iec.ch/TC57/CIM100#"
-- eu: "http://iec.ch/TC57/CIM100-EuropeanExtension/1/0#"
+- cim: +http://iec.ch/TC57/CIM100#+
+- eu: +http://iec.ch/TC57/CIM100-EuropeanExtension/1/0#+
 
 KGVerifyPy will automatically switch the namespaces in the context when these are detected in the graph.
 
-= Output
+=== Output
 A window will give a summary of the result, including information about the number of SHACL shapes found in the SHACL file,
 the number of SHACL shapes that had explicit targets in the data graph, and the number of triples in the data graph.
 
-If the no violations are found "Conforms: True" is shown.
+If no violations are found "Conforms: True" is shown.
 
-If violations are found a short summary is given of what kind of violations where found and the number of each. The full result is written
+If violations are found a short summary is given of what kind of violations there where and how many of each. The full result is written
 to a graph file.
 
 A CSV report can optionally be saved. This is a reorganised version of the result graph which can be reviewed in Excel.
