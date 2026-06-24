@@ -4,7 +4,9 @@ import tkinter as tk
 from pathlib import Path
 from rdflib import Graph, URIRef
 from rdflib.namespace import SH
+from kgverifypy import gui
 from src.kgverifypy.validation_service import ShaclValidationResult
+from src.kgverifypy.information import TOOLTIP_TEXTS
 
 from src.kgverifypy.gui import (
     FILE_CONFIG_PATH,
@@ -138,17 +140,22 @@ def test_file_selection_section() -> None:
 # ._rdfs_section
 def test_rdfs_section() -> None:
     gui = CIMShaclGUI()
+    gui.tooltip = Mock()
     gui._add_file_picker_row = Mock(return_value=1)
     parent = Mock()
 
-    result = gui._rdfs_section(parent, 0)
+    with patch(f"{PATCH_LOCATION}.ttk.Label") as mock_label:
+        result = gui._rdfs_section(parent, 0)
 
-    gui._add_file_picker_row.assert_called_once_with(parent, 0, gui.rdfs_var, gui._select_rdfs_files)
+    mock_label.assert_called_once_with(parent, text="RDFS files (optional):")
+    gui.tooltip.attach.assert_called_once_with(mock_label.return_value, TOOLTIP_TEXTS["RDFS"])
+    gui._add_file_picker_row.assert_called_once_with(parent, 1, gui.rdfs_var, gui._select_rdfs_files)
     assert result == 2
 
 # ._datatype_section
 def test_datatype_section() -> None:
     gui = CIMShaclGUI()
+    gui.tooltip = Mock()
     gui._add_file_picker_row = Mock(return_value=2)
     parent = Mock()
 
@@ -160,6 +167,7 @@ def test_datatype_section() -> None:
         mock_check.assert_called_once_with(parent, text="Add datatypes", variable=gui.add_datatypes_var)
         mock_check.return_value.grid.assert_called_once()
 
+    gui.tooltip.attach.assert_called_once_with(mock_check.return_value, TOOLTIP_TEXTS["ADD_DATATYPES"])
     gui._add_file_picker_row.assert_called_once_with(parent, 1, gui.datatype_var, gui._select_datatype_file)
     assert result == 3
 
@@ -252,9 +260,9 @@ def test_safe_execute_success(mock_showerror: MagicMock, exception: None | Excep
     func.assert_called_once()
     if exception is None:
         mock_showerror.assert_not_called()
-        assert "Unhandled exception" not in caplog.text
+        assert "Error occured when loading files." not in caplog.text
     else:
-        assert "Unhandled exception" in caplog.text
+        assert "Error occured when loading files." in caplog.text
         mock_showerror.assert_called_once_with("Error", str(exception))
 
 
@@ -343,7 +351,6 @@ def test_execute_selection_calls_load_method(mock_save_config: MagicMock) -> Non
     setattr(gui.datahandler, dataset_config.load_method, Mock())
     setattr(gui.datahandler, dataset_config.set_method, Mock())
 
-    # mock attributes used via getattr
     var_mock = Mock()
     setattr(gui, dataset_config.var_attr, var_mock)
 
@@ -358,7 +365,6 @@ def test_execute_selection_calls_load_method(mock_save_config: MagicMock) -> Non
 
     gui._execute_selection(files, dataset_config)
 
-    # Assert
     setter = getattr(gui.datahandler, dataset_config.set_method)
     setter.assert_called_once_with(files, "cimxml")
     getattr(gui.datahandler, dataset_config.load_method).assert_called_once()
@@ -521,6 +527,28 @@ def test_prepare_data_graph(graph, add_datatypes, datatype_file) -> None:
     else:
         gui.validation_service.prepare_data_for_validation.assert_called_once_with(graph, "rdfs_graph", add_datatypes=False, context_data=context_data)
 
+# ._show_output_message
+@pytest.mark.parametrize("tag_map_exists", [True, False])
+def test_show_output_message(tag_map_exists: bool) -> None:
+    gui = CIMShaclGUI()
+    gui.output = Mock()
+    gui.output.index = Mock(return_value="1.0")
+    gui.tooltip = Mock()
+    message = "Test message"
+    tag_map = {"tag1": "tooltip1", "tag2": "tooltip2"} if tag_map_exists else None
+
+    gui._show_output_message(message, tag_map)
+
+    gui.output.config.assert_has_calls([call(state="normal"), call(state="disabled")])
+    gui.output.index.assert_called_once_with("end")
+    gui.output.insert.assert_called_once_with(tk.END, message + "\n")
+    gui.output.see.assert_called_once_with(tk.END)
+
+    if tag_map_exists:
+        gui.tooltip.apply_to_text.assert_called_once_with(gui.output, "1.0", tag_map)
+    else:
+        gui.tooltip.apply_to_text.assert_not_called()
+
 # ._show_namespace_report
 @patch(f"{PATCH_LOCATION}.tk.Toplevel")
 @patch(f"{PATCH_LOCATION}.format_namespace_matrix")
@@ -619,8 +647,10 @@ def test_report_focus_nodes_summarynotnone() -> None:
 			f"Total number of shapes: {focus_nodes.total_shapes}\n"
 			f"Shapes with explicit focus nodes in graph: {focus_nodes.shapes_with_focus_nodes}\n"
 		)
+    
+    tag_map = {"Shapes with explicit focus nodes in graph": TOOLTIP_TEXTS["FOCUS_NODES"]} 
 
-    gui._show_output_message.assert_called_once_with(expected_message)
+    gui._show_output_message.assert_called_once_with(expected_message, tag_map=tag_map)
 
 
 # ._start_validation

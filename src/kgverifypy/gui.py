@@ -13,7 +13,8 @@ from kgverifypy.validation_service import ShaclValidationService, ShaclValidatio
 from kgverifypy.csv_utilities import collect_violations, write_shacl_violations_to_csv
 from kgverifypy.data_handler import DataHandler, DatasetConfig
 from kgverifypy.namespaces import compare_namespaces, all_namespaces_match, format_namespace_matrix
-from kgverifypy.gui_utilites import CollapsibleSection, ProgressTimerDialog
+from kgverifypy.gui_utilites import CollapsibleSection, ProgressTimerDialog, ToolTip
+from kgverifypy.information import TOOLTIP_TEXTS
 import logging
 
 if TYPE_CHECKING:
@@ -43,6 +44,7 @@ class CIMShaclGUI:
 		self._configure_root_window()
 		self._configure_styles()
 		self._init_variables()
+		self.tooltip: ToolTip = ToolTip(delay=400)
 		self.validation_service: ShaclValidationService = ShaclValidationService()
 		self._restore_format_from_file_config()
 
@@ -155,7 +157,10 @@ class CIMShaclGUI:
 			int: The next row index after the section components, to allow for correct placement of subsequent sections.
 		"""
 		row: int = start_row
-		row = self._add_file_picker_row(frame, row, self.rdfs_var, self._select_rdfs_files)		
+		label = ttk.Label(frame, text="RDFS files (optional):")
+		label.grid(row=row, column=0, sticky="w", pady=(10, 6))
+		self.tooltip.attach(label, TOOLTIP_TEXTS["RDFS"])
+		row = self._add_file_picker_row(frame, row+1, self.rdfs_var, self._select_rdfs_files)		
 		return row +1
 
 	def _datatype_section(self, frame: ttk.Frame, start_row: int) -> int:
@@ -172,7 +177,7 @@ class CIMShaclGUI:
 
 		check = ttk.Checkbutton(frame, text="Add datatypes", variable=self.add_datatypes_var)
 		check.grid(row=row, column=0, sticky="w")
-		
+		self.tooltip.attach(check, TOOLTIP_TEXTS["ADD_DATATYPES"])
 		ttk.Label(frame, text="Custom context file:").grid(row=row +1, column=0, sticky="w", pady=(10, 6))
 		row = self._add_file_picker_row(frame, row +1, self.datatype_var, self._select_datatype_file)
 
@@ -251,6 +256,7 @@ class CIMShaclGUI:
 		ttk.Entry(frame, textvariable=value_var, state="readonly").grid(row=start_row, column=0, sticky="ew", padx=(0, 8))
 		ttk.Button(frame, text="Browse", command=command).grid(row=start_row, column=1, sticky="ew")
 		return start_row + 1
+
 
 	# Data handling methods
 	def _safe_execute(self, func: Callable, *, title: str) -> None:
@@ -393,17 +399,19 @@ class CIMShaclGUI:
 		context_data: dict | None = self.datahandler.datatypes if self.datahandler.datatype_file else None
 		self.validation_service.prepare_data_for_validation(self.datahandler.data_graph, self.datahandler.rdfs_graph, add_datatypes=self.add_datatypes_var.get(), context_data=context_data)
 
-
 	# Output methods
 
-	def _show_output_message(self, message: str) -> None:
+	def _show_output_message(self, message: str, tag_map: dict[str, str]|None = None) -> None:
 		"""Helper method to show a message in the output text area of the validation dialog.
 		
 		Parameters:
 			message (str): The message to display in the output area.
 		"""
 		self.output.config(state=tk.NORMAL)
+		start_index: str = self.output.index(tk.END)
 		self.output.insert(tk.END, message + "\n")
+		if tag_map:
+			self.tooltip.apply_to_text(self.output, start_index, tag_map)
 		self.output.see(tk.END)
 		self.output.config(state=tk.DISABLED)
 
@@ -461,12 +469,13 @@ class CIMShaclGUI:
 		if summary is None:
 			return
 
+		tooltip_line = "Shapes with explicit focus nodes in graph"
+
 		focus_message: str = (
 			f"Total number of shapes: {summary.total_shapes}\n"
-			f"Shapes with explicit focus nodes in graph: {summary.shapes_with_focus_nodes}\n"
+			f"{tooltip_line}: {summary.shapes_with_focus_nodes}\n"
 		)
-		self._show_output_message(focus_message)
-
+		self._show_output_message(focus_message, tag_map={tooltip_line: TOOLTIP_TEXTS["FOCUS_NODES"]})
 
 	def _process_shacl_validation_async(self) -> None:
 		"""Run the SHACL validation in a separate thread and use a queue to get the results back to the main thread."""
