@@ -129,7 +129,7 @@ def test_file_selection_section() -> None:
     select_command = Mock()
 
     with patch(f"{PATCH_LOCATION}.ttk.Label") as label_mock:
-        result = gui._file_selection_section(parent, 0, "Title", format_var, file_var, [("CIMXML", "cimxml")], select_command)
+        result = gui._file_selection_section(parent, 0, "Title files:", format_var, file_var, [("CIMXML", "cimxml")], select_command)
 
         label_mock.assert_called_once_with(parent, text="Title files:")
         label_mock.return_value.grid.assert_called_once()

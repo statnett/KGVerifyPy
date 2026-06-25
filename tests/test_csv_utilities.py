@@ -1,14 +1,18 @@
 import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock, mock_open, call
 from rdflib import Graph, URIRef, Literal, Node, BNode
 from rdflib.namespace import RDF, SH, XSD
+from typing import Callable
 from src.kgverifypy.csv_utilities import (
     PREDICATE_MAP,
     ConstraintViolation, 
     extract_violations_from_graph, 
     collect_violations, 
-    write_shacl_violations_to_csv
+    write_shacl_violations_to_csv,
+    resolve_node,
+    is_rdf_list,
+    resolve_rdf_list
 )
 
 PATCH_LOCATION = "src.kgverifypy.csv_utilities"
@@ -79,7 +83,6 @@ def test_extract_violations_from_graph_allvalues() -> None:
     assert violation.message == "Violation message"
 
 
-B = BNode()  # Create a single BNode instance for testing
 @pytest.mark.parametrize(
         "object",
         [
@@ -87,7 +90,6 @@ B = BNode()  # Create a single BNode instance for testing
             pytest.param(Literal(""), id="Literal empty string value"),
             pytest.param(Literal(42), id="Literal integer value"),
             pytest.param(Literal(42, datatype=XSD.integer), id="Literal integer value with datatype"),
-            pytest.param(B, id="BNode value")
         ]
 )
 def test_extract_violations_from_graph_edgecases(object: Node) -> None:
@@ -106,14 +108,18 @@ def test_extract_violations_from_graph_edgecases(object: Node) -> None:
 def test_extract_violations_from_graph_mixedvaluetypes() -> None:
     g = Graph()
     subject = URIRef("http://example.org/subject")
-
+    B = BNode()  # Create a single BNode instance for testing
     g.add((subject, SH.value, Literal("text")))
-    g.add((subject, SH.value, BNode()))
+    g.add((subject, SH.value, B))
+    g.add((B, SH.value, Literal("nested text")))
+
 
     violation = extract_violations_from_graph(g, subject)
 
     parts = violation.object.split(", ")
     assert len(parts) == 2
+    assert parts[0] == "text"
+    assert parts[1] == f"{SH.value}: nested text"
 
 def test_extract_violations_from_graph_nomatchingsubject() -> None:
     g = Graph()
@@ -125,6 +131,229 @@ def test_extract_violations_from_graph_nomatchingsubject() -> None:
     violation = extract_violations_from_graph(g, subject)
 
     assert violation.object == "N/A"
+
+# Unit tests resolve_node
+@patch(f"{PATCH_LOCATION}.is_rdf_list")
+@patch(f"{PATCH_LOCATION}.resolve_rdf_list")
+def test_resolve_node_seen(mock_resolve: MagicMock, mock_is_list: MagicMock) -> None:
+    g = Graph()
+    bnode = BNode()
+
+    result = resolve_node(g, bnode, {bnode})
+    
+    assert result == []
+    mock_is_list.assert_not_called()
+    mock_resolve.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "node",
+    [
+        pytest.param(Literal("Literal value"), id="Literal string value"),
+        pytest.param(URIRef("http://example.org/resource"), id="URIRef value"),
+        pytest.param("http://example.org/resource", id="String value"),
+    ]
+)
+@patch(f"{PATCH_LOCATION}.is_rdf_list")
+@patch(f"{PATCH_LOCATION}.resolve_rdf_list")
+def test_resolve_node_notbnode(mock_resolve: MagicMock, mock_is_list: MagicMock, node: Node) -> None:
+    g = Graph()
+
+    result = resolve_node(g, node)
+    
+    assert result == [str(node)]
+    mock_is_list.assert_not_called()
+    mock_resolve.assert_not_called()
+
+
+@pytest.mark.parametrize("is_rdf_list_value", [True, False])
+@patch(f"{PATCH_LOCATION}.is_rdf_list")
+@patch(f"{PATCH_LOCATION}.resolve_rdf_list", return_value=["item1", "item2"])
+def test_resolve_node_rdflist(mock_resolve: MagicMock, mock_is_list: MagicMock, is_rdf_list_value: bool) -> None:
+    mock_is_list.return_value = is_rdf_list_value
+    g = Graph()
+    bnode = BNode()
+    g.add((bnode, SH.value, Literal("item1")))
+    g.add((bnode, SH.value, Literal("item2")))
+
+    result = resolve_node(g, bnode)
+
+    mock_is_list.assert_called_once_with(g, bnode)
+    if is_rdf_list_value:
+        assert result == ["item1 / item2"]
+        mock_resolve.assert_called_once_with(g, bnode)
+    else:
+        assert result == [f"{SH.value}: item1, item2"]
+        mock_resolve.assert_not_called()
+
+
+@patch(f"{PATCH_LOCATION}.is_rdf_list", return_value=False)
+@patch(f"{PATCH_LOCATION}.resolve_rdf_list")
+def test_resolve_node_multiplelayers(mock_resolve: MagicMock, mock_is_list: MagicMock) -> None:
+    g = Graph()
+    bnode = BNode()
+    bnode2 = BNode()
+    g.add((bnode, SH.value, bnode2))
+    g.add((bnode2, SH.value, Literal("Literal value")))
+
+    result = resolve_node(g, bnode)
+
+    assert result == [f"{SH.value}: {SH.value}: Literal value"] # All predicates touched are included in the output
+    mock_resolve.assert_not_called()
+    mock_is_list.assert_has_calls([call(g, bnode), call(g, bnode2)])
+
+
+@patch(f"{PATCH_LOCATION}.is_rdf_list")
+@patch(f"{PATCH_LOCATION}.resolve_rdf_list")
+def test_resolve_node_circularnodes(mock_resolve: MagicMock, mock_is_list: MagicMock) -> None:
+    g = Graph()
+    bnode = BNode()
+    bnode2 = BNode()
+    g.add((bnode, SH.value, bnode2))
+    g.add((bnode2, SH.value, bnode)) # Circular reference
+
+    result = resolve_node(g, bnode)
+
+    assert result == [""] # No results found because the bnodes don't lead anywhere
+    # The function does not get stuck in an infinite loop due to the seen set
+    mock_resolve.assert_called_once_with(g, bnode)
+    mock_is_list.assert_called_once_with(g, bnode)
+
+# Unit tests is_rdf_list
+@pytest.mark.parametrize("is_rdf_list_value", [True, False])
+def test_is_rdf_list_bnodes(is_rdf_list_value: bool) -> None:
+    g = Graph()
+    bnode = BNode()
+    if is_rdf_list_value:
+        g.add((bnode, RDF.first, Literal("item1")))
+        g.add((bnode, RDF.rest, RDF.nil))
+    else:
+        g.add((bnode, SH.value, Literal("not a list")))
+
+    assert is_rdf_list(g, bnode) is is_rdf_list_value
+
+
+@pytest.mark.parametrize("is_rdf_list_value", [True, False])
+def test_is_rdf_list_notbnodes(is_rdf_list_value: bool) -> None:
+    g = Graph()
+    node = URIRef("http://example.org/resource")
+    if is_rdf_list_value:
+        g.add((node, RDF.first, Literal("item1")))
+        g.add((node, RDF.rest, RDF.nil))
+    else:
+        g.add((node, SH.value, Literal("not a list")))
+
+    assert is_rdf_list(g, node) is False  # Only BNodes can be RDF lists, so it always return False for non-BNodes
+
+
+# Unit tests resolve_rdf_list
+def test_resolve_rdf_list_simple() -> None:
+    g = Graph()
+    bnode1 = BNode()
+    bnode2 = BNode()
+    g.add((bnode1, RDF.first, Literal("item1")))
+    g.add((bnode1, RDF.rest, bnode2))
+    g.add((bnode2, RDF.first, Literal("item2")))
+    g.add((bnode2, RDF.rest, RDF.nil))
+
+    result = resolve_rdf_list(g, bnode1)
+
+    assert result == ["item1", "item2"]
+
+
+@pytest.mark.parametrize(
+    "triples, expected",
+    [
+        pytest.param(
+            lambda b: [
+                (b[0], RDF.first, Literal("a")),
+                (b[0], RDF.rest, b[1]),
+                (b[1], RDF.first, Literal("b")),
+                (b[1], RDF.rest, RDF.nil),
+            ],
+            ["a", "b"],
+            id="simple_two_items",
+        ),
+        pytest.param(
+            lambda b: [
+                (b[0], RDF.first, Literal("only")),
+                (b[0], RDF.rest, RDF.nil),
+            ],
+            ["only"],
+            id="single_item",
+        ),
+        pytest.param(
+            lambda b: [
+                (b[0], RDF.rest, RDF.nil),
+            ],
+            [],
+            id="missing_first",
+        ),
+        pytest.param(
+            lambda b: [
+                (b[0], RDF.first, Literal("only")),
+            ],
+            ["only"],
+            id="missing_rest",
+        ),
+        pytest.param(
+            lambda b: [
+                (b[0], RDF.first, Literal("a")),
+                (b[0], RDF.rest, b[1]),
+                (b[1], RDF.first, Literal("b")),
+                (b[1], RDF.rest, b[0]),
+            ],
+            ["a", "b"],
+            id="cycle_two_nodes",
+        ),
+        pytest.param(
+            lambda b: [
+                (b[0], RDF.first, Literal("x")),
+                (b[0], RDF.rest, b[0]),
+            ],
+            ["x"],
+            id="self_cycle",
+        ),
+        pytest.param(
+            lambda b: [
+                (b[0], RDF.first, URIRef("http://example.org")),
+                (b[0], RDF.rest, b[1]),
+                (b[1], RDF.first, Literal("text")),
+                (b[1], RDF.rest, RDF.nil),
+            ],
+            ["http://example.org", "text"],
+            id="mixed_uri_literal",
+        ),
+        pytest.param(
+            lambda b: [
+                (b[0], RDF.first, b[1]),
+                (b[0], RDF.rest, RDF.nil),
+                (b[1], RDF.first, Literal("a")),
+                (b[1], RDF.rest, RDF.nil),
+            ],
+            ["a"],
+            id="nested_list",
+        ),
+        pytest.param(
+            lambda b: [],
+            [],
+            id="nil_input",
+        ),
+    ],
+)
+def test_resolve_rdf_list_parametrized(triples: Callable[[list[BNode]], list[tuple[Node, URIRef, Node]]], expected: list[str]) -> None:
+    g = Graph()
+    bnodes = [BNode(), BNode(), BNode()]
+
+    built_triples = triples(bnodes)
+    for triple in built_triples:
+        g.add(triple)
+
+    start = RDF.nil if not built_triples else bnodes[0]
+
+    result = resolve_rdf_list(g, start)
+
+    assert result == expected
 
 
 # Unit tests collect_violations
