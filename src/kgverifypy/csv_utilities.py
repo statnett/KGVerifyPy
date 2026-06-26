@@ -9,7 +9,7 @@ import csv
 
 PREDICATE_MAP = {
     "subject_uuid": "http://www.w3.org/ns/shacl#focusNode",
-    "predicate": "http://www.w3.org/ns/shacl#resultPath",
+    "result_path": "http://www.w3.org/ns/shacl#resultPath",
     "object": "http://www.w3.org/ns/shacl#value",
     "constraint_component": "http://www.w3.org/ns/shacl#sourceConstraintComponent",
     "shape": "http://www.w3.org/ns/shacl#sourceShape",
@@ -23,7 +23,7 @@ class ConstraintViolation:
     """Dataclass to hold details of a single SHACL constraint violation."""
     
     subject_uuid: str
-    predicate: str
+    result_path: str # Predicate or a predicate/object pair related to the triple with the violation
     object: str
     constraint_component: str   # The type of contstraint that was violated (e.g., sh:MinCountConstraintComponent)
     shape: str  # The SHACL shape that was violated (e.g., sh:MinCountConstraintComponent)

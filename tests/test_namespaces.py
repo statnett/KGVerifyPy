@@ -1,6 +1,5 @@
 import pytest
 from rdflib import Graph, URIRef
-from rdflib.namespace import NamespaceManager
 from kgraphpy.namespaces import CGMES_CIM, CGMES_EU, CIM
 from copy import deepcopy
 from typing import Any
@@ -113,15 +112,20 @@ def test_align_cgmes_namespaces_nestedcontext() -> None:
         }}
     
 # Unit tests compare_namespaces
-def test_compare_namespaces_emptygraphs() -> None:
-    graph1 = Graph()
-    graph1.namespace_manager = NamespaceManager(graph1, "none")  # Clear any default namespaces
-    
-    graph2 = Graph()
-    graph2.namespace_manager = NamespaceManager(graph2, "none")  # Clear any default namespaces
-    
-    report = compare_namespaces({"data": graph1, "shacl": graph2})
-    assert report == []  # No namespaces, so empty report 
+@pytest.mark.parametrize(
+    "ns_map, expected_report", 
+    [
+        pytest.param({}, [], id="Empty namespace map"),
+        pytest.param({"data": {}, "shacl": {}}, [], id="Two empty graphs"),
+        pytest.param(
+            {"data": {CGMES_CIM: "cim"}, "shacl": {}}, 
+            [{"uri": CGMES_CIM, "presence": {"data": "cim", "shacl": None}, "missing": ["shacl"]}], 
+            id="One graph with namespace, one empty"),
+    ]
+)
+def test_compare_namespaces_emptyinput(ns_map: dict[str, dict[str, str]], expected_report: list) -> None:
+    report = compare_namespaces(ns_map)
+    assert report == expected_report
 
 
 @pytest.mark.parametrize(
@@ -133,16 +137,13 @@ def test_compare_namespaces_emptygraphs() -> None:
         pytest.param(("cim", CGMES_CIM), ("cim2", CIM), (["shacl"], ["data"]), id="Different namespaces, different prefix"),
     ]
 )
-def test_compare_namespaces_basic(ns1, ns2, expected_missing) -> None:
-    graph1 = Graph()
-    graph1.namespace_manager = NamespaceManager(graph1, "none")  # Clear any default namespaces
-    graph1.bind(ns1[0], ns1[1])
+def test_compare_namespaces_basic(ns1: tuple[str, str], ns2: tuple[str, str], expected_missing: tuple[list[str], list[str]]) -> None:
     
-    graph2 = Graph()
-    graph2.namespace_manager = NamespaceManager(graph2, "none")  # Clear any default namespaces
-    graph2.bind(ns2[0], ns2[1])
-    
-    report = compare_namespaces({"data": graph1, "shacl": graph2})
+    ns_map = {
+        "data": {ns1[1]: ns1[0]},
+        "shacl": {ns2[1]: ns2[0]}
+    }
+    report = compare_namespaces(ns_map)
 
     for row in report:
         if row["uri"] == ns1[1]:
@@ -153,19 +154,13 @@ def test_compare_namespaces_basic(ns1, ns2, expected_missing) -> None:
             assert row["missing"] == expected_missing[1]
 
 def test_compare_namespaces_threegraphs() -> None:
-    graph1 = Graph()
-    graph1.namespace_manager = NamespaceManager(graph1, "none")
-    graph1.bind("cim", CGMES_CIM)
+    ns_maps = {
+        "data": {str(CGMES_CIM): "cim"},
+        "shacl": {str(CIM): "cim"},
+        "rdfs": {str(CGMES_EU): "eu"}
+    }
 
-    graph2 = Graph()
-    graph2.namespace_manager = NamespaceManager(graph2, "none")
-    graph2.bind("cim", CIM)
-
-    graph3 = Graph()
-    graph3.namespace_manager = NamespaceManager(graph3, "none")
-    graph3.bind("eu", CGMES_EU)
-
-    report = compare_namespaces({"data": graph1, "shacl": graph2, "rdfs": graph3})
+    report = compare_namespaces(ns_maps)
     
     assert all(isinstance(row["uri"], str) for row in report)  # URIs should be strings
     assert len(report) == 3
@@ -186,34 +181,13 @@ def test_compare_namespaces_threegraphs() -> None:
     assert report[2]["missing"] == ["data", "rdfs"]
 
 
-def test_compare_namespaces_with_none_graph() -> None:
-    graph1 = Graph()
-    graph1.namespace_manager = NamespaceManager(graph1, "none")
-    graph1.bind("cim", CGMES_CIM)
+def test_compare_namespaces_withnonegraph() -> None:
+    ns_map = {"data": {"cim": CGMES_CIM}, "shacl": None}
 
-    report = compare_namespaces({"data": graph1, "shacl": None})
+    with pytest.raises(AttributeError):
+        report = compare_namespaces(ns_map)
 
-    assert len(report) == 1
-    assert report[0]["presence"]["data"] == "cim"
-    assert "shacl" not in report[0]["presence"]  # skipped entirely
-
-
-def test_one_graph_empty_one_non_empty() -> None:
-    g1 = Graph()
-    g1.namespace_manager = NamespaceManager(g1, "none")
-
-    g2 = Graph()
-    g2.namespace_manager = NamespaceManager(g2, "none")
-    g2.bind("cim", CGMES_CIM)
-
-    report = compare_namespaces({"data": g1, "shacl": g2})
-
-    assert len(report) == 1
-    row = report[0]
-
-    assert row["presence"]["data"] is None
-    assert row["presence"]["shacl"] == "cim"
-    assert row["missing"] == ["data"]
+        assert report is None  # Report should not be generated due to the error
 
 
 # Unit tests all_namespaces_match

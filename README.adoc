@@ -145,7 +145,12 @@ If no violations are found "Conforms: True" is shown.
 If violations are found a short summary is given of what kind of violations there where and how many of each. The full result is written
 to a graph file.
 
-A CSV report can optionally be saved. This is a reorganised version of the result graph which can be viewed in Excel.
+==== CSV report
+A CSV report can optionally be saved. This is a reorganised version of the result graph which can be viewed in Excel. The columns subject_uuid,
+result_path and object refer to the triple where the violation was flagged. The column called result_path usually only holds the predicate of 
+the triples, but sometimes it will contain both a predicate and object. This could be referring to the triple that has been flagged (e.g. if 
+object is N/A the result_path shows a predicate that is missing from the graph), or it could be referring to a path related to the object 
+(e.g. the object of the flagged triple is of the wrong type).
 
 == Licensing
 

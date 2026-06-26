@@ -421,28 +421,66 @@ class CIMShaclGUI:
 
 	def _show_namespace_report(self) -> None: 
 		"""Generate and display a report comparing the namespaces used in the data graphs, SHACL graphs and RDFS graphs."""
-		graphs: dict[str, Graph|None] = {
-			"data": self.datahandler.data_graph,
-			"shacl": self.datahandler.shacl_graph
+		namespaces = self.datahandler.namespace_handler
+		
+		ns_map: dict[str, dict[str, str]] = {
+			"data": namespaces.data_ns_map if namespaces.data_ns_map else {},
+			"shacl": namespaces.shacl_ns_map if namespaces.shacl_ns_map else {}
 		}
 
-		if self.datahandler.rdfs_graph is not None:
-			graphs["rdfs"] = self.datahandler.rdfs_graph
+		if namespaces.rdfs_ns_map is not None:
+			ns_map["rdfs"] = namespaces.rdfs_ns_map
 
-		report: list[dict[str, str]] = compare_namespaces(graphs)
+		report: list[dict[str, str]] = compare_namespaces(ns_map)
 
 		if all_namespaces_match(report):
 			messagebox.showinfo("Namespace Check", "✅ All namespaces match.")
 			return
 
-		matrix_text: str = format_namespace_matrix(report, list(graphs.keys()))
+		matrix_text: str = format_namespace_matrix(report, list(ns_map.keys()))
+		self._create_namespace_report_window("Namespace Differences", matrix_text)
 
-		win: tk.Toplevel = tk.Toplevel()
-		win.title("Namespace Differences")
-		text_area: scrolledtext.ScrolledText = scrolledtext.ScrolledText(win, wrap=tk.WORD, width=110, height=30, font=("Courier", 15), bg="#f0f0f0", fg="#202020", insertbackground="#202020", relief=tk.SUNKEN, borderwidth=2)
-		text_area.insert(tk.END, matrix_text)
+
+	def _create_namespace_report_window(self, title: str, content: str) -> None:
+		"""Create a new window to display the namespace report with scrollable text area.
+		
+		Parameters:
+			title (str): The title of the new window.
+			content (str): The content to display in the text area of the new window.
+		"""
+		win = tk.Toplevel()
+		win.title(title)
+
+		frame = ttk.Frame(win)
+		frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+		h_scroll = ttk.Scrollbar(frame, orient=tk.HORIZONTAL)
+		v_scroll = ttk.Scrollbar(frame, orient=tk.VERTICAL)
+
+		text_area = tk.Text(
+			frame,
+			wrap=tk.NONE,
+			xscrollcommand=h_scroll.set,
+			yscrollcommand=v_scroll.set,
+			font=("Courier", 15),
+			bg="#f0f0f0",
+			fg="#202020",
+			insertbackground="#202020",
+			relief=tk.SUNKEN,
+			borderwidth=2,
+			width=110,
+			height=30
+		)
+
+		v_scroll.config(command=text_area.yview)
+		h_scroll.config(command=text_area.xview)
+
+		v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+		h_scroll.pack(side=tk.BOTTOM, fill=tk.X)
+		text_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+		text_area.insert(tk.END, content)
 		text_area.config(state=tk.DISABLED)
-		text_area.pack(padx=10, pady=10)
 
 			
 	def _start_validation(self) -> None:

@@ -21,6 +21,15 @@ class DatasetConfig:
     loading_message: str = "" # Message to display in the loading dialog when loading the file(s) in a separate thread
 
 
+@dataclass()
+class NamespaceHandler:
+    """Handler for all the namespaces in the loaded graphs."""
+    
+    data_ns_map: dict[str, str]| None = None
+    shacl_ns_map: dict[str, str]| None = None
+    rdfs_ns_map: dict[str, str]| None = None
+
+
 T = TypeVar('T')
 
 class DataHandler:
@@ -39,6 +48,8 @@ class DataHandler:
         self.rdfs_graph: Graph|None = None
         self.shacl_graph: Graph|None = None
         self.datatypes: dict|None = None
+
+        self.namespace_handler: NamespaceHandler = NamespaceHandler()
 
     # Setters
     def set_data_files(self, files: list[str], format: str) -> None:
@@ -67,6 +78,9 @@ class DataHandler:
         else:
             self.data_graph = make_graphs_from(self.data_files, format=self.data_format)
 
+        if self.data_graph:
+            self.namespace_handler.data_ns_map=_get_ns_map(self.data_graph)
+
 
     def load_shacl_file(self) -> None:
         """Load the SHACL file into a graph based on the specified format."""
@@ -76,6 +90,9 @@ class DataHandler:
 
         self.shacl_graph = make_graphs_from(self.shacl_file, format=self.shacl_format)
 
+        if self.shacl_graph:
+            self.namespace_handler.shacl_ns_map=_get_ns_map(self.shacl_graph)
+
 
     def load_rdfs_files(self) -> None:
         """Load RDFS files in RDF/XML format into a single graph."""
@@ -84,6 +101,9 @@ class DataHandler:
             return
 
         self.rdfs_graph = make_graphs_from(self.rdfs_files, format="xml")
+
+        if self.rdfs_graph:
+            self.namespace_handler.rdfs_ns_map=_get_ns_map(self.rdfs_graph)
 
 
     def load_datatypes(self) -> None:
@@ -95,6 +115,16 @@ class DataHandler:
         self.datatypes = load_json(self.datatype_file)
 
 
+def _get_ns_map(graph: Graph) -> dict[str, str]:
+    """Helper function to get a mapping of namespace URIs to prefixes from an RDFLib Graph.
+    
+    Parameters:
+        graph (Graph): The RDFLib Graph from which to extract namespaces.
+
+    Returns:
+        dict: A dictionary mapping namespace URIs (as strings) to their prefixes.
+    """
+    return {str(ns): prefix for prefix, ns in graph.namespace_manager.namespaces()}
 
 if __name__ == "__main__":
     print("Data handler module.")

@@ -553,76 +553,101 @@ def test_show_output_message(tag_map_exists: bool) -> None:
         gui.tooltip.apply_to_text.assert_not_called()
 
 # ._show_namespace_report
-@patch(f"{PATCH_LOCATION}.tk.Toplevel")
 @patch(f"{PATCH_LOCATION}.format_namespace_matrix")
 @patch(f"{PATCH_LOCATION}.messagebox.showinfo")
 @patch(f"{PATCH_LOCATION}.all_namespaces_match")
 @patch(f"{PATCH_LOCATION}.compare_namespaces")
-def test_show_namespace_report_allmatch(mock_compare: MagicMock, mock_all_match: MagicMock, mock_showinfo: MagicMock, mock_format: MagicMock, mock_toplevel: MagicMock) -> None:
+def test_show_namespace_report_allmatch(mock_compare: MagicMock, mock_all_match: MagicMock, mock_showinfo: MagicMock, mock_format: MagicMock) -> None:
     gui = CIMShaclGUI()
-    gui.datahandler = Mock()
-    gui.datahandler.data_graph = "data_graph"
-    gui.datahandler.shacl_graph = "shacl_graph"
-    gui.datahandler.rdfs_graph = None
+    gui.datahandler.namespace_handler = Mock()
+    gui._create_namespace_report_window = Mock()
+    gui.datahandler.namespace_handler.data_ns_map = "data_ns"
+    gui.datahandler.namespace_handler.shacl_ns_map = "shacl_ns"
+    gui.datahandler.namespace_handler.rdfs_ns_map = None
 
     mock_compare.return_value = {"namespace1": ("prefix1", "uri1")}
     mock_all_match.return_value = True
     gui._show_namespace_report()
-    mock_compare.assert_called_once_with({"data": "data_graph", "shacl": "shacl_graph"})
+    mock_compare.assert_called_once_with({"data": "data_ns", "shacl": "shacl_ns"})
     mock_all_match.assert_called_once_with({"namespace1": ("prefix1", "uri1")})
     mock_format.assert_not_called()
     mock_showinfo.assert_called_once_with("Namespace Check", "✅ All namespaces match.")
-    mock_toplevel.assert_not_called()
+    gui._create_namespace_report_window.assert_not_called()
 
 
-@patch(f"{PATCH_LOCATION}.scrolledtext.ScrolledText")
-@patch(f"{PATCH_LOCATION}.tk.Toplevel")
 @patch(f"{PATCH_LOCATION}.format_namespace_matrix")
 @patch(f"{PATCH_LOCATION}.messagebox.showinfo")
 @patch(f"{PATCH_LOCATION}.all_namespaces_match")
 @patch(f"{PATCH_LOCATION}.compare_namespaces")
-def test_show_namespace_report_notmatched(mock_compare: MagicMock, mock_all_match: MagicMock, mock_showinfo: MagicMock, mock_format: MagicMock, mock_toplevel: MagicMock, mock_scrolled: MagicMock) -> None:
+def test_show_namespace_report_notmatched(mock_compare: MagicMock, mock_all_match: MagicMock, mock_showinfo: MagicMock, mock_format: MagicMock) -> None:
     gui = CIMShaclGUI()
-    gui.datahandler = Mock()
-    gui.datahandler.data_graph = "data_graph"
-    gui.datahandler.shacl_graph = "shacl_graph"
-    gui.datahandler.rdfs_graph = None
+    gui.datahandler.namespace_handler = Mock()
+    gui._create_namespace_report_window = Mock()
+    gui.datahandler.namespace_handler.data_ns_map = "data_ns"
+    gui.datahandler.namespace_handler.shacl_ns_map = "shacl_ns"
+    gui.datahandler.namespace_handler.rdfs_ns_map = None
 
     mock_compare.return_value = {"namespace1": ("prefix1", "uri1"), "namespace2": ("prefix2", "uri2")}
     mock_all_match.return_value = False
     formatted_report = "Formatted Namespace Report"
     mock_format.return_value = formatted_report
+    
     gui._show_namespace_report()
-    mock_compare.assert_called_once_with({"data": "data_graph", "shacl": "shacl_graph"})
+    
+    mock_compare.assert_called_once_with({"data": "data_ns", "shacl": "shacl_ns"})
     mock_all_match.assert_called_once_with({"namespace1": ("prefix1", "uri1"), "namespace2": ("prefix2", "uri2")})
     mock_format.assert_called_once_with({"namespace1": ("prefix1", "uri1"), "namespace2": ("prefix2", "uri2")},["data", "shacl"])
     mock_showinfo.assert_not_called()
-    mock_toplevel.assert_called_once()
-    mock_scrolled.assert_called_once()
-    mock_scrolled.return_value.insert.assert_called_once_with(tk.END, formatted_report)
+    gui._create_namespace_report_window.assert_called_once_with("Namespace Differences", formatted_report)
 
 
-@patch(f"{PATCH_LOCATION}.tk.Toplevel")
 @patch(f"{PATCH_LOCATION}.format_namespace_matrix")
 @patch(f"{PATCH_LOCATION}.messagebox.showinfo")
 @patch(f"{PATCH_LOCATION}.all_namespaces_match")
 @patch(f"{PATCH_LOCATION}.compare_namespaces")
-def test_show_namespace_report_withrdfs(mock_compare: MagicMock, mock_all_match: MagicMock, mock_showinfo: MagicMock, mock_format: MagicMock, mock_toplevel: MagicMock) -> None:
+def test_show_namespace_report_withrdfs(mock_compare: MagicMock, mock_all_match: MagicMock, mock_showinfo: MagicMock, mock_format: MagicMock) -> None:
     gui = CIMShaclGUI()
-    gui.datahandler = Mock()
-    gui.datahandler.data_graph = "data_graph"
-    gui.datahandler.shacl_graph = "shacl_graph"
-    gui.datahandler.rdfs_graph = "rdfs_graph"
+    gui.datahandler.namespace_handler = Mock()
+    gui._create_namespace_report_window = Mock()
+    gui.datahandler.namespace_handler.data_ns_map = "data_ns"
+    gui.datahandler.namespace_handler.shacl_ns_map = "shacl_ns"
+    gui.datahandler.namespace_handler.rdfs_ns_map = "rdfs_ns"
 
     mock_compare.return_value = {"namespace1": ("prefix1", "uri1"), "namespace2": ("prefix2", "uri2")}
     mock_all_match.return_value = False
+
     gui._show_namespace_report()
-    mock_compare.assert_called_once_with({"data": "data_graph", "shacl": "shacl_graph", "rdfs": "rdfs_graph"})
+    
+    mock_compare.assert_called_once_with({"data": "data_ns", "shacl": "shacl_ns", "rdfs": "rdfs_ns"})
     mock_all_match.assert_called_once_with({"namespace1": ("prefix1", "uri1"), "namespace2": ("prefix2", "uri2")})
     mock_format.assert_called_once_with({"namespace1": ("prefix1", "uri1"), "namespace2": ("prefix2", "uri2")},["data", "shacl", "rdfs"])
     mock_showinfo.assert_not_called()
-    mock_toplevel.assert_called_once()
+    gui._create_namespace_report_window.assert_called_once_with("Namespace Differences", mock_format.return_value)
 
+# ._create_namespace_report_window
+@patch(f"{PATCH_LOCATION}.tk.Text")
+@patch(f"{PATCH_LOCATION}.ttk.Scrollbar")
+@patch(f"{PATCH_LOCATION}.tk.Toplevel")
+def test_create_namespace_report_window(mock_toplevel: MagicMock, mock_scrollbar: MagicMock, mock_text: MagicMock) -> None:
+    h_scroll = Mock()
+    v_scroll = Mock()
+    mock_scrollbar.side_effect = [h_scroll, v_scroll]
+    gui = CIMShaclGUI()
+
+    with patch(f"{PATCH_LOCATION}.ttk.Frame") as mock_frame:
+        gui._create_namespace_report_window("Title", "Report content")
+
+    frame = mock_frame.return_value
+    mock_toplevel.assert_called_once()
+    mock_toplevel.return_value.title.assert_called_once_with("Title")
+    mock_frame.assert_called_once_with(mock_toplevel.return_value)
+    mock_scrollbar.assert_has_calls([call(frame, orient="horizontal"), call(frame, orient="vertical")])
+    mock_text.assert_called_once()
+    text_widget = mock_text.return_value
+    h_scroll.config.assert_called_once_with(command=text_widget.xview)
+    v_scroll.config.assert_called_once_with(command=text_widget.yview)
+    text_widget.insert.assert_called_once_with(tk.END, "Report content")
+    text_widget.config.assert_called_once_with(state="disabled")
 
 # ._report_focus_nodes
 def test_report_focus_nodes_summarynone() -> None:

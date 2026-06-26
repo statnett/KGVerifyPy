@@ -35,7 +35,7 @@ def test_extract_violations_from_graph_emptygraph() -> None:
 
     assert isinstance(violation, ConstraintViolation)
     assert violation.subject_uuid == "N/A"
-    assert violation.predicate == "N/A"
+    assert violation.result_path == "N/A"
     assert violation.object == "N/A"
     assert violation.constraint_component == "N/A"
     assert violation.shape == "N/A"
@@ -53,7 +53,7 @@ def test_extract_violations_from_graph_withsomevalues() -> None:
     violation = extract_violations_from_graph(g, subject)
 
     assert violation.subject_uuid == "http://example.org/focusNode"
-    assert violation.predicate == "http://example.org/predicate"
+    assert violation.result_path == "http://example.org/predicate"
     assert violation.object == "http://example.org/object1, http://example.org/object2"
     assert violation.constraint_component == "N/A"
     assert violation.shape == "N/A"
@@ -75,7 +75,7 @@ def test_extract_violations_from_graph_allvalues() -> None:
 
     assert isinstance(violation, ConstraintViolation)
     assert violation.subject_uuid == "http://example.org/focusNode"
-    assert violation.predicate == "http://example.org/predicate"
+    assert violation.result_path == "http://example.org/predicate"
     assert violation.object == "http://example.org/object1"
     assert violation.constraint_component == "http://example.org/constraintComponent"
     assert violation.shape == "http://example.org/shape"
@@ -411,7 +411,7 @@ def test_write_shacl_violations_to_csv_writing(mock_file: MagicMock, filepath: s
     violations = [
         ConstraintViolation(
             subject_uuid="s",
-            predicate="p",
+            result_path="p",
             object="o",
             constraint_component="c",
             shape="sh",
@@ -427,7 +427,7 @@ def test_write_shacl_violations_to_csv_writing(mock_file: MagicMock, filepath: s
     handle.write.assert_called()
 
     written = "".join(call.args[0] for call in handle.write.call_args_list)
-    assert "subject_uuid;predicate;object;constraint_component;shape;severity;message" in written
+    assert "subject_uuid;result_path;object;constraint_component;shape;severity;message" in written
     assert "s;p;o;c;sh;sev;msg" in written
 
 
@@ -435,7 +435,7 @@ def test_write_shacl_violations_to_csv_writing(mock_file: MagicMock, filepath: s
 def test_write_shacl_violations_to_csv_multiplerows(mock_file: MagicMock) -> None:
     v1 = ConstraintViolation(
         subject_uuid="s1",
-        predicate="p1",
+        result_path="p1",
         object="o1",
         constraint_component="c1",
         shape="sh1",
@@ -444,7 +444,7 @@ def test_write_shacl_violations_to_csv_multiplerows(mock_file: MagicMock) -> Non
     )
     v2 = ConstraintViolation(
         subject_uuid="s2",
-        predicate="p2",
+        result_path="p2",
         object="o2",
         constraint_component="c2",
         shape="sh2",
@@ -464,7 +464,7 @@ def test_write_shacl_violations_to_csv_specialcharacters(mock_file: MagicMock) -
     violations = [
         ConstraintViolation(
             subject_uuid="s;1",
-            predicate="p\nline",
+            result_path="p\nline",
             object='o"quote',
             constraint_component="cc",
             shape="sh",
